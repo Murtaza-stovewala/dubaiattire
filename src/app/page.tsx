@@ -4,6 +4,7 @@ import ProductShowcase from '@/components/sections/product-showcase';
 import Testimonials from '@/components/sections/testimonials';
 import InstagramFeed from '@/components/sections/instagram-feed';
 import Footer from '@/components/layout/footer';
+import VirtualTrialCta from '@/components/sections/virtual-trial-cta';
 
 export default function Home() {
   return (
@@ -12,6 +13,7 @@ export default function Home() {
       <main className="flex-1">
         <Hero />
         <ProductShowcase />
+        <VirtualTrialCta />
         <Testimonials />
         <InstagramFeed />
       </main>

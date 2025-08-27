@@ -2,10 +2,8 @@
 
 import { useState } from 'react';
 import Image from 'next/image';
-import Link from 'next/link';
 import { products, productFilters, type Product } from '@/lib/products';
 import { Card, CardContent } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 const ProductShowcase = () => {
@@ -100,9 +98,6 @@ const ProductShowcase = () => {
                   <h3 className="font-headline text-xl font-semibold truncate">{product.name}</h3>
                   <p className="text-muted-foreground text-sm">{product.category}</p>
                   <p className="font-semibold text-lg text-primary">{formatPrice(product.price)}</p>
-                  <Button asChild className="w-full bg-primary hover:bg-accent hover:text-accent-foreground">
-                    <Link href={`/virtual-trial/${product.id}`}>Try Virtually</Link>
-                  </Button>
                 </div>
               </CardContent>
             </Card>

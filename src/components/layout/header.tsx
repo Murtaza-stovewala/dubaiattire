@@ -5,9 +5,9 @@ import { Gem } from 'lucide-react';
 
 const Header = () => {
   const navLinks = [
-    { name: 'Collection', href: '#collection' },
-    { name: 'About', href: '#about' },
-    { name: 'Contact', href: '#contact' },
+    { name: 'Collection', href: '/#collection' },
+    { name: 'About', href: '/#about' },
+    { name: 'Contact', href: '/#contact' },
   ];
 
   return (
@@ -25,7 +25,7 @@ const Header = () => {
           ))}
         </nav>
         <Button asChild>
-          <Link href="#collection">
+          <Link href="/virtual-trial">
             Virtual Trial
           </Link>
         </Button>
