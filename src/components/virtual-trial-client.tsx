@@ -1,47 +1,45 @@
 'use client';
 
 import React, { useState, useRef } from 'react';
-import { products } from '@/lib/products';
-import type { Product } from '@/lib/products';
 import Image from 'next/image';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Upload, Camera, Loader2, Wand2, Scissors, Check, X } from 'lucide-react';
 import { virtualTrial, removeBackground } from '@/ai/flows/virtual-trial';
 import { useToast } from "@/hooks/use-toast"
-import {
-  Carousel,
-  CarouselContent,
-  CarouselItem,
-  CarouselNext,
-  CarouselPrevious,
-} from "@/components/ui/carousel"
+import { Label } from "@/components/ui/label"
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
+
 
 type TrialStep = 'upload' | 'cutout' | 'select' | 'result';
+type ClothingType = 'Blazer' | 'Kurta';
 
 export default function VirtualTrialClient() {
   const [step, setStep] = useState<TrialStep>('upload');
   const [userImage, setUserImage] = useState<string | null>(null);
   const [cutoutImage, setCutoutImage] = useState<string | null>(null);
-  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
+  const [materialImage, setMaterialImage] = useState<string | null>(null);
+  const [clothingType, setClothingType] = useState<ClothingType>('Blazer');
   const [resultImage, setResultImage] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [loadingMessage, setLoadingMessage] = useState('');
   
   const { toast } = useToast();
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const userFileInputRef = useRef<HTMLInputElement>(null);
+  const materialFileInputRef = useRef<HTMLInputElement>(null);
 
-  const handleImageUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImageUpload = (event: React.ChangeEvent<HTMLInputElement>, imageSetter: React.Dispatch<React.SetStateAction<string | null>>) => {
     const file = event.target.files?.[0];
     if (file) {
       const reader = new FileReader();
       reader.onload = (e) => {
-        setUserImage(e.target?.result as string);
-        setCutoutImage(null);
-        setResultImage(null);
-        setStep('upload'); 
+        imageSetter(e.target?.result as string);
+        if(imageSetter === setUserImage) {
+            setCutoutImage(null);
+            setResultImage(null);
+            setStep('upload'); 
+        }
       };
       reader.readAsDataURL(file);
     }
@@ -78,41 +76,25 @@ export default function VirtualTrialClient() {
     }
   };
 
-  const getClothingDataUri = async (url: string): Promise<string> => {
-    const proxyUrl = `https://images.weserv.nl/?url=${encodeURIComponent(url.replace('https://', ''))}`;
-    const response = await fetch(proxyUrl);
-    if (!response.ok) {
-        throw new Error(`Failed to fetch image: ${response.statusText}`);
-    }
-    const blob = await response.blob();
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onloadend = () => resolve(reader.result as string);
-      reader.onerror = reject;
-      reader.readAsDataURL(blob);
-    });
-  };
-
   const handleVirtualTrial = async () => {
-    if (!cutoutImage || !selectedProduct) {
+    if (!cutoutImage || !materialImage) {
       toast({
           title: "Missing Information",
-          description: "Please ensure you have a cutout and have selected a clothing item.",
+          description: "Please ensure you have a cutout and have uploaded a material photo.",
           variant: "destructive",
       });
       return;
     }
 
     setIsLoading(true);
-    setLoadingMessage('Applying the outfit...');
+    setLoadingMessage('Generating your custom outfit...');
     setStep('result');
 
     try {
-      const clothingDataUri = await getClothingDataUri(selectedProduct.imageSrc);
-
       const result = await virtualTrial({
         photoDataUri: cutoutImage,
-        clothingDataUri: clothingDataUri,
+        materialDataUri: materialImage,
+        clothingType: clothingType,
       });
       
       if (result.overlayedImage) {
@@ -136,11 +118,14 @@ export default function VirtualTrialClient() {
   const reset = () => {
     setUserImage(null);
     setCutoutImage(null);
-    setSelectedProduct(null);
+    setMaterialImage(null);
     setResultImage(null);
     setStep('upload');
-    if(fileInputRef.current) {
-        fileInputRef.current.value = "";
+    if(userFileInputRef.current) {
+        userFileInputRef.current.value = "";
+    }
+     if(materialFileInputRef.current) {
+        materialFileInputRef.current.value = "";
     }
   }
 
@@ -148,7 +133,7 @@ export default function VirtualTrialClient() {
     const steps: {id: TrialStep, name: string}[] = [
         { id: 'upload', name: 'Upload Photo' },
         { id: 'cutout', name: 'Create Cutout' },
-        { id: 'select', name: 'Select Attire' },
+        { id: 'select', name: 'Design Attire' },
         { id: 'result', name: 'View Result' },
     ];
     const currentStepIndex = steps.findIndex(s => s.id === currentStep);
@@ -206,9 +191,9 @@ export default function VirtualTrialClient() {
                             type="file"
                             id="imageUpload"
                             accept="image/*"
-                            onChange={handleImageUpload}
+                            onChange={(e) => handleImageUpload(e, setUserImage)}
                             className="hidden"
-                            ref={fileInputRef}
+                            ref={userFileInputRef}
                             />
                         <Button asChild variant="outline" size="lg">
                             <label htmlFor="imageUpload" className="cursor-pointer">
@@ -257,48 +242,70 @@ export default function VirtualTrialClient() {
                 {step === 'select' && (
                      <div>
                         <CardHeader className="text-center">
-                            <CardTitle>Step 3: Select Your Attire</CardTitle>
-                            <CardDescription>Choose an item from our collection to try on.</CardDescription>
+                            <CardTitle>Step 3: Design Your Attire</CardTitle>
+                            <CardDescription>Upload a fabric or material, then choose the clothing style.</CardDescription>
                         </CardHeader>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-start">
                              <div className="text-center space-y-4">
+                                <h3 className="font-semibold text-lg">Your Cutout</h3>
                                 <div className="relative aspect-[3/4] w-full max-w-sm mx-auto border rounded-lg overflow-hidden bg-gray-100 dark:bg-gray-800">
                                     {cutoutImage && <Image src={cutoutImage} alt="User cutout for selection" layout="fill" objectFit="contain" />}
                                 </div>
                                 <Button variant="outline" onClick={() => setStep('cutout')}>Back to Cutout</Button>
                              </div>
-                             <div>
-                                <Carousel className="w-full">
-                                <CarouselContent>
-                                    {products.map((product) => (
-                                    <CarouselItem key={product.id} className="basis-1/2">
-                                        <div className="p-1">
-                                        <Card 
-                                            className={`cursor-pointer transition-all ${selectedProduct?.id === product.id ? 'ring-2 ring-primary' : ''}`}
-                                            onClick={() => setSelectedProduct(product)}
-                                        >
-                                            <CardContent className="flex aspect-[3/4] items-center justify-center p-2 relative">
-                                                <Image src={product.imageSrc} alt={product.name} layout="fill" objectFit="cover" className="rounded-md" />
-                                            </CardContent>
-                                        </Card>
-                                        </div>
-                                    </CarouselItem>
-                                    ))}
-                                </CarouselContent>
-                                <CarouselPrevious />
-                                <CarouselNext />
-                                </Carousel>
-
-                                {selectedProduct && (
-                                    <div className="mt-4 p-4 border rounded-lg">
-                                        <h4 className="font-headline text-xl">{selectedProduct.name}</h4>
-                                        <p className="text-muted-foreground text-sm">{selectedProduct.category}</p>
-                                        <Button onClick={handleVirtualTrial} disabled={isLoading} className="w-full mt-4">
-                                            {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Wand2 className="mr-2 h-4 w-4" />}
-                                            Try this on
-                                        </Button>
+                             <div className="space-y-6">
+                                <div className="space-y-4 text-center">
+                                    <h3 className="font-semibold text-lg">Upload Material</h3>
+                                    <div className="flex flex-col items-center justify-center space-y-4 p-4 border-2 border-dashed rounded-lg h-64 w-full">
+                                        {materialImage ? (
+                                            <div className="relative w-full h-full">
+                                            <Image src={materialImage} alt="Material upload" layout="fill" objectFit="cover" className="rounded-md" />
+                                            </div>
+                                        ) : (
+                                            <div className="text-center text-muted-foreground">
+                                            <Upload className="mx-auto h-10 w-10" />
+                                            <p className="mt-2">Upload a fabric photo</p>
+                                            </div>
+                                        )}
                                     </div>
-                                )}
+                                    <input
+                                        type="file"
+                                        id="materialUpload"
+                                        accept="image/*"
+                                        onChange={(e) => handleImageUpload(e, setMaterialImage)}
+                                        className="hidden"
+                                        ref={materialFileInputRef}
+                                        />
+                                    <Button asChild variant="outline" size="sm">
+                                        <label htmlFor="materialUpload" className="cursor-pointer">
+                                            <Upload className="mr-2 h-4 w-4" />
+                                            {materialImage ? 'Change Material' : 'Upload Material'}
+                                        </label>
+                                    </Button>
+                                </div>
+
+                                <div className="space-y-4">
+                                     <h3 className="font-semibold text-lg text-center">Choose Style</h3>
+                                    <RadioGroup
+                                        defaultValue="Blazer"
+                                        className="flex justify-center gap-4"
+                                        onValueChange={(value: ClothingType) => setClothingType(value)}
+                                        >
+                                        <div className="flex items-center space-x-2">
+                                            <RadioGroupItem value="Blazer" id="r-blazer" />
+                                            <Label htmlFor="r-blazer">Blazer</Label>
+                                        </div>
+                                        <div className="flex items-center space-x-2">
+                                            <RadioGroupItem value="Kurta" id="r-kurta" />
+                                            <Label htmlFor="r-kurta">Kurta</Label>
+                                        </div>
+                                    </RadioGroup>
+                                </div>
+
+                                <Button onClick={handleVirtualTrial} disabled={isLoading || !materialImage} className="w-full">
+                                    {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Wand2 className="mr-2 h-4 w-4" />}
+                                    Generate Outfit
+                                </Button>
                              </div>
                         </div>
                      </div>
@@ -310,7 +317,7 @@ export default function VirtualTrialClient() {
                             <CardTitle>Step 4: Your Virtual Look</CardTitle>
                             <CardDescription>Here is your personalized virtual trial result!</CardDescription>
                         </CardHeader>
-                        <div className="relative aspect-[3/4] max-w-md mx-auto border rounded-lg overflow-hidden my-4">
+                        <div className="relative aspect-[3/4] max-w-md mx-auto border rounded-lg overflow-hidden my-4 bg-gray-100 dark:bg-gray-800">
                           {isLoading ? (
                             <div className="flex flex-col items-center justify-center text-muted-foreground h-full">
                                 <Loader2 className="h-12 w-12 animate-spin text-accent" />
@@ -331,7 +338,7 @@ export default function VirtualTrialClient() {
                             Start Over
                         </Button>
                          <Button onClick={() => setStep('select')} className="ml-4">
-                            Try Another Outfit
+                            Try Another Design
                         </Button>
                     </div>
                 )}

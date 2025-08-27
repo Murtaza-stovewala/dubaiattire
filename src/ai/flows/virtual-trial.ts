@@ -37,11 +37,12 @@ const VirtualTrialInputSchema = z.object({
     .describe(
       "A cutout photo of the user with a transparent background, as a data URI. Format: 'data:image/png;base64,<encoded_data>'."
     ),
-  clothingDataUri: z
+  materialDataUri: z
     .string()
     .describe(
-      "A photo of the clothing item, as a data URI. It's better if this also has a transparent background. Format: 'data:<mimetype>;base64,<encoded_data>'."
+      "A photo of the material or fabric, as a data URI. Format: 'data:<mimetype>;base64,<encoded_data>'."
     ),
+  clothingType: z.enum(['Blazer', 'Kurta']).describe('The type of clothing to generate.')
 });
 export type VirtualTrialInput = z.infer<typeof VirtualTrialInputSchema>;
 
@@ -70,7 +71,7 @@ const removeBackgroundPrompt = ai.definePrompt({
   name: 'removeBackgroundPrompt',
   input: {schema: RemoveBackgroundInputSchema},
   output: {schema: RemoveBackgroundOutputSchema},
-  model: 'googleai/gemini-2.0-flash',
+  model: 'googleai/gemini-2.0-flash-preview',
   prompt: `You are an expert image editor. Your task is to remove the background from the provided image of a person. 
   
 The output should be an image of the person with a transparent background, suitable for overlaying on another image. Make the cutout clean and precise.
@@ -98,17 +99,18 @@ const virtualTrialPrompt = ai.definePrompt({
   name: 'virtualTrialPrompt',
   input: {schema: VirtualTrialInputSchema},
   output: {schema: VirtualTrialOutputSchema},
-  model: 'googleai/gemini-2.0-flash',
-  prompt: `You are an AI fashion stylist. Your goal is to realistically place a clothing item onto a person's image.
+  model: 'googleai/gemini-2.0-flash-preview',
+  prompt: `You are an AI fashion stylist and designer. Your goal is to create a piece of clothing from a given material and realistically place it onto a person's image.
 
-The user has provided a cutout image of themselves and an image of a clothing item.
+The user has provided a cutout image of themselves and an image of a fabric/material.
 - Analyze the person's posture and body shape.
-- Analyze the clothing item's style, drape, and size.
-- Overlay the clothing item onto the person. The fit should be natural and realistic, accounting for folds, shadows, and the person's pose.
-- The final output should be a single, merged image on a simple, neutral background.
+- Analyze the material's texture, pattern, and color.
+- Generate a high-fashion, well-fitted {{clothingType}} for the person using the provided material.
+- Overlay the generated {{clothingType}} onto the person. The fit should be natural and realistic, accounting for folds, shadows, and the person's pose.
+- The final output should be a single, merged image of the person wearing the new clothing on a transparent background.
 
 User Cutout Photo: {{media url=photoDataUri}}
-Clothing Item: {{media url=clothingDataUri}}
+Material/Fabric Photo: {{media url=materialDataUri}}
 
 Output ONLY the final, merged image as a data URI.
 `,
