@@ -70,13 +70,14 @@ const removeBackgroundPrompt = ai.definePrompt({
   name: 'removeBackgroundPrompt',
   input: {schema: RemoveBackgroundInputSchema},
   output: {schema: RemoveBackgroundOutputSchema},
+  model: 'googleai/gemini-2.0-flash',
   prompt: `You are an expert image editor. Your task is to remove the background from the provided image of a person. 
   
 The output should be an image of the person with a transparent background, suitable for overlaying on another image. Make the cutout clean and precise.
 
 User Photo: {{media url=photoDataUri}}
 
-Output the cutout image as a data URI.`,
+Output ONLY the cutout image as a data URI.`,
 });
 
 const removeBackgroundFlow = ai.defineFlow(
@@ -97,6 +98,7 @@ const virtualTrialPrompt = ai.definePrompt({
   name: 'virtualTrialPrompt',
   input: {schema: VirtualTrialInputSchema},
   output: {schema: VirtualTrialOutputSchema},
+  model: 'googleai/gemini-2.0-flash',
   prompt: `You are an AI fashion stylist. Your goal is to realistically place a clothing item onto a person's image.
 
 The user has provided a cutout image of themselves and an image of a clothing item.
@@ -108,7 +110,7 @@ The user has provided a cutout image of themselves and an image of a clothing it
 User Cutout Photo: {{media url=photoDataUri}}
 Clothing Item: {{media url=clothingDataUri}}
 
-Output the final, merged image as a data URI.
+Output ONLY the final, merged image as a data URI.
 `,
 });
 
