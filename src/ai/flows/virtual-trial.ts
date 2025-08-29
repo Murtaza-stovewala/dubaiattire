@@ -120,7 +120,7 @@ const virtualTrialPrompt = ai.definePrompt({
   name: 'virtualTrialPrompt',
   input: {schema: VirtualTrialInputSchema},
   output: {schema: VirtualTrialOutputSchema},
-  model: 'googleai/gemini-2.0-flash-preview',
+  model: 'googleai/gemini-pro-vision',
   prompt: `You are an AI fashion stylist and designer. Your goal is to create a piece of clothing from a given material and realistically place it onto a person's image.
 
 The user has provided a cutout image of themselves and an image of a fabric/material.
