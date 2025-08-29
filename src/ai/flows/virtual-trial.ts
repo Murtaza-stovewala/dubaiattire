@@ -9,6 +9,8 @@
 
 import {ai} from '@/ai/genkit';
 import {z} from 'genkit';
+import axios from 'axios';
+import FormData from 'form-data';
 
 // Schema for background removal
 const RemoveBackgroundInputSchema = z.object({
@@ -66,30 +68,49 @@ export async function virtualTrial(input: VirtualTrialInput): Promise<VirtualTri
 }
 
 
-// Genkit prompt and flow for background removal
-const removeBackgroundPrompt = ai.definePrompt({
-  name: 'removeBackgroundPrompt',
-  input: {schema: RemoveBackgroundInputSchema},
-  output: {schema: RemoveBackgroundOutputSchema},
-  model: 'googleai/gemini-2.0-flash-preview',
-  prompt: `You are an expert image editor. Your task is to remove the background from the provided image of a person. 
-  
-The output should be an image of the person with a transparent background, suitable for overlaying on another image. Make the cutout clean and precise.
-
-User Photo: {{media url=photoDataUri}}
-
-Output ONLY the cutout image as a data URI.`,
-});
-
+// Flow for background removal using remove.bg API
 const removeBackgroundFlow = ai.defineFlow(
   {
     name: 'removeBackgroundFlow',
     inputSchema: RemoveBackgroundInputSchema,
     outputSchema: RemoveBackgroundOutputSchema,
   },
-  async input => {
-    const {output} = await removeBackgroundPrompt(input);
-    return output!;
+  async ({ photoDataUri }) => {
+    const apiKey = process.env.REMOVE_BG_API_KEY;
+    if (!apiKey) {
+      throw new Error('REMOVE_BG_API_KEY is not configured.');
+    }
+
+    // Extract base64 data and create a buffer
+    const base64Data = photoDataUri.split(',')[1];
+    const imageBuffer = Buffer.from(base64Data, 'base64');
+    
+    const formData = new FormData();
+    formData.append('image_file', imageBuffer, { filename: 'user_image.jpg' });
+    formData.append('size', 'auto');
+
+    try {
+      const response = await axios.post(
+        'https://api.remove.bg/v1.0/removebg',
+        formData,
+        {
+          headers: {
+            ...formData.getHeaders(),
+            'X-Api-Key': apiKey,
+          },
+          responseType: 'arraybuffer',
+        }
+      );
+
+      const resultBuffer = Buffer.from(response.data);
+      const resultDataUri = `data:image/png;base64,${resultBuffer.toString('base64')}`;
+
+      return { cutoutImage: resultDataUri };
+
+    } catch (error: any) {
+        console.error('Error calling remove.bg API:', error.response?.data?.toString());
+        throw new Error(`Failed to remove background: ${error.message}`);
+    }
   }
 );
 
