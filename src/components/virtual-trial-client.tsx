@@ -67,6 +67,7 @@ export default function VirtualTrialClient() {
   const handleFabricUpload = (file: File | null) => {
     setFabricFile(file);
     if(file){
+        if (fabricUrl) URL.revokeObjectURL(fabricUrl); // Revoke old URL
         setFabricUrl(URL.createObjectURL(file));
     } else {
         setFabricUrl(null);
@@ -378,3 +379,5 @@ export default function VirtualTrialClient() {
     </div>
   );
 }
+
+    
