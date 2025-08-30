@@ -5,23 +5,11 @@
 import { ai } from '@/ai/genkit';
 import { z } from 'genkit';
 
-export const GenerateGarmentInputSchema = z.object({
-  garmentType: z.string().describe('The type of garment to generate (e.g., "Kurta", "Blazer").'),
-  fabricDataUrl: z.string().describe("A photo of the fabric, as a data URI that must include a MIME type and use Base64 encoding. Expected format: 'data:<mimetype>;base64,<encoded_data>'."),
-});
+// Input and Output types are defined in the client component
+// to avoid exporting non-async functions from a 'use server' file.
+import type { GenerateGarmentInput } from '@/components/virtual-trial-client';
 
-export const GenerateGarmentOutputSchema = z.object({
-    garmentDataUrl: z.string().describe("The generated garment image as a transparent PNG data URI.")
-});
-
-export type GenerateGarmentInput = z.infer<typeof GenerateGarmentInputSchema>;
-
-
-const generateGarmentPrompt = ai.definePrompt({
-    name: 'generateGarmentPrompt',
-    input: { schema: GenerateGarmentInputSchema },
-    output: { schema: GenerateGarmentOutputSchema },
-    prompt: `You are an expert fashion designer's assistant. Your task is to generate a photorealistic image of a single garment.
+const generateGarmentPrompt = `You are an expert fashion designer's assistant. Your task is to generate a photorealistic image of a single garment.
 
     Instructions:
     1.  Create a men's {{garmentType}}.
@@ -30,30 +18,28 @@ const generateGarmentPrompt = ai.definePrompt({
     4.  **Crucially, the output image MUST have a transparent background.**
     5.  Do not include any people, models, or body parts in the image. Only the garment.
 
-    Fabric Image: {{media url=fabricDataUrl}}`,
-    config: {
-        temperature: 0.4,
-    }
-});
+    Fabric Image: {{media url=fabricDataUrl}}`;
 
 
 export async function generateGarment(input: GenerateGarmentInput) {
     const llmResponse = await ai.generate({
         model: 'googleai/gemini-1.5-flash-latest',
         prompt: [
-            {text: generateGarmentPrompt.prompt},
+            {text: generateGarmentPrompt},
             {media: {url: input.fabricDataUrl}}
         ],
-        // The structured output approach seems less reliable for pure image-gen,
-        // so we handle the image response directly.
+         config: {
+            temperature: 0.4,
+        }
     });
+    
+    const imagePart = llmResponse.output()?.message.parts.find(p => p.media);
 
-    const imageData = llmResponse.media();
-    if (!imageData || !imageData.url) {
+    if (!imagePart || !imagePart.media?.url) {
         throw new Error('AI did not return an image.');
     }
     
     return {
-        garmentDataUrl: imageData.url
+        garmentDataUrl: imagePart.media.url
     };
 }

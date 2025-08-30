@@ -2,11 +2,20 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useToast } from "@/hooks/use-toast";
-import { generateGarment, GenerateGarmentInput } from "@/ai/flows/generate-garment";
+import { generateGarment } from "@/ai/flows/generate-garment";
 import { Loader2 } from "lucide-react";
 import { Button } from "./ui/button";
 import { RadioGroup, RadioGroupItem } from "./ui/radio-group";
 import { Label } from "./ui/label";
+import { z } from "zod";
+
+// Define Zod schemas and types here in the client component
+export const GenerateGarmentInputSchema = z.object({
+  garmentType: z.string().describe('The type of garment to generate (e.g., "Kurta", "Blazer").'),
+  fabricDataUrl: z.string().describe("A photo of the fabric, as a data URI that must include a MIME type and use Base64 encoding. Expected format: 'data:<mimetype>;base64,<encoded_data>'."),
+});
+export type GenerateGarmentInput = z.infer<typeof GenerateGarmentInputSchema>;
+
 
 type GarmentLayer = {
   id: string;
@@ -98,10 +107,12 @@ export default function VirtualTrialClient() {
       reader.readAsDataURL(fabricFile);
       reader.onload = async () => {
         const fabricDataUrl = reader.result as string;
-        const input: GenerateGarmentInput = {
-          garmentType,
-          fabricDataUrl,
-        };
+        
+        const parseResult = GenerateGarmentInputSchema.safeParse({ garmentType, fabricDataUrl });
+        if (!parseResult.success) {
+          throw new Error(`Invalid input: ${parseResult.error.message}`);
+        }
+        const input: GenerateGarmentInput = parseResult.data;
         const result = await generateGarment(input);
 
         const newGarment: GarmentLayer = {
