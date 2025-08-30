@@ -22,11 +22,12 @@ type Garment = {
 
 // These are now templates/masks. They should be simple, transparent PNG outlines.
 const GARMENT_TEMPLATES = [
-    { id: "kurta-template", label: "Kurta", src: "/cloth/kurtanew.png" },
-    { id: "blazer-template", label: "Blazer", src: "/cloth/blazer1.png" },
-    { id: "sherwani-template", label: "Sherwani", src: "/cloth/sherwani1.png" },
-    { id: "pants-template", label: "Pants", src: "/cloth/pants1.png" },
+    { id: "kurta-template", label: "Kurta", maskSrc: "/cloth/kurtanew_mask.png", shadingSrc: "/cloth/kurtanew_shading.png", borderSrc: "/cloth/kurtanew_border.png" },
+    { id: "blazer-template", label: "Blazer", maskSrc: "/cloth/blazer1_mask.png", shadingSrc: "/cloth/blazer1_shading.png", borderSrc: "/cloth/blazer1_border.png" },
+    { id: "sherwani-template", label: "Sherwani", maskSrc: "/cloth/sherwani1_mask.png", shadingSrc: "/cloth/sherwani1_shading.png", borderSrc: "/cloth/sherwani1_border.png" },
+    { id: "pants-template", label: "Pants", maskSrc: "/cloth/pants1_mask.png", shadingSrc: "/cloth/pants1_shading.png", borderSrc: "/cloth/pants1_border.png" },
 ];
+
 
 export default function VirtualTrialClient() {
   const stageRef = useRef<HTMLDivElement>(null);
@@ -96,44 +97,51 @@ export default function VirtualTrialClient() {
     }
   };
 
-  const applyFabricToTemplate = async (templateSrc: string, fabricSrc: string): Promise<string> => {
+  const applyFabricToTemplate = async (maskSrc: string, fabricSrc: string, shadingSrc: string, borderSrc: string): Promise<string> => {
     return new Promise((resolve, reject) => {
-        const templateImg = document.createElement('img');
-        templateImg.crossOrigin = "anonymous";
-        templateImg.onload = () => {
-            if (templateImg.width === 0 || templateImg.height === 0) {
-              return reject(new Error('Template image has zero dimensions. Is it a valid PNG?'));
-            }
-            const fabricImg = document.createElement('img');
-            fabricImg.crossOrigin = "anonymous";
-            fabricImg.onload = () => {
-                const canvas = document.createElement('canvas');
-                canvas.width = templateImg.width;
-                canvas.height = templateImg.height;
-                const ctx = canvas.getContext('2d');
-                if (!ctx) return reject(new Error('Could not get canvas context'));
-
-                // Create a pattern from the fabric
-                const pattern = ctx.createPattern(fabricImg, 'repeat');
-                if (!pattern) return reject(new Error('Could not create pattern from fabric.'));
-
-                // Fill the canvas with the pattern
-                ctx.fillStyle = pattern;
-                ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-                // Use the template as a mask
-                ctx.globalCompositeOperation = 'destination-in';
-                ctx.drawImage(templateImg, 0, 0);
-
-                resolve(canvas.toDataURL('image/png'));
-            };
-            fabricImg.onerror = (err) => reject(new Error('Failed to load fabric image.'));
-            fabricImg.src = fabricSrc;
-        };
-        templateImg.onerror = (err) => reject(new Error('Failed to load template image. Please use a transparent PNG.'));
-        templateImg.src = templateSrc;
+      const canvas = document.createElement("canvas");
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return reject("Could not get canvas context");
+  
+      const loadImage = (src: string) => new Promise<HTMLImageElement>((res, rej) => {
+        const img = new Image();
+        img.crossOrigin = "anonymous";
+        img.onload = () => res(img);
+        img.onerror = (err) => rej(new Error(`Failed to load image: ${src}. ${err.toString()}`));
+        img.src = src;
+      });
+  
+      Promise.all([loadImage(maskSrc), loadImage(fabricSrc), loadImage(shadingSrc), loadImage(borderSrc)])
+        .then(([mask, fabric, shading, border]) => {
+          if (mask.width === 0 || mask.height === 0) {
+            return reject(new Error('Mask image has zero dimensions. Is it a valid PNG?'));
+          }
+          canvas.width = mask.width;
+          canvas.height = mask.height;
+  
+          // 1. Fill with fabric
+          const pattern = ctx.createPattern(fabric, "repeat");
+          if (!pattern) return reject(new Error('Could not create fabric pattern.'));
+          ctx.fillStyle = pattern;
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+  
+          // 2. Mask the kurta
+          ctx.globalCompositeOperation = "destination-in";
+          ctx.drawImage(mask, 0, 0, canvas.width, canvas.height);
+  
+          // 3. Add shading (Multiply)
+          ctx.globalCompositeOperation = "multiply";
+          ctx.drawImage(shading, 0, 0, canvas.width, canvas.height);
+  
+          // 4. Add outline
+          ctx.globalCompositeOperation = "source-over";
+          ctx.drawImage(border, 0, 0, canvas.width, canvas.height);
+  
+          resolve(canvas.toDataURL("image/png"));
+        })
+        .catch(reject);
     });
-  }
+  };
 
   const handleGenerateGarment = async () => {
     if (!selectedTemplate || !fabricUrl) {
@@ -142,7 +150,8 @@ export default function VirtualTrialClient() {
     }
     setIsGenerating(true);
     try {
-      const texturedGarmentSrc = await applyFabricToTemplate(selectedTemplate.src, fabricUrl);
+      const { maskSrc, shadingSrc, borderSrc } = selectedTemplate;
+      const texturedGarmentSrc = await applyFabricToTemplate(maskSrc, fabricUrl, shadingSrc, borderSrc);
       const newGarment: Garment = {
         id: `${selectedTemplate.id}-${crypto.randomUUID()}`,
         label: selectedTemplate.label,
@@ -380,5 +389,4 @@ export default function VirtualTrialClient() {
   );
 }
 
-    
     
