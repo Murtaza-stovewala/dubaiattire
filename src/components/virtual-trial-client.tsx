@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useEffect, useRef, useState } from "react";
@@ -6,6 +7,7 @@ import { Loader2, Wand2, Upload, Shirt, Scissors } from "lucide-react";
 import { Button } from "./ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import Image from "next/image";
+import html2canvas from "html2canvas";
 
 type Garment = {
   id: string;
@@ -20,7 +22,7 @@ type Garment = {
 
 // These are now templates/masks. They should be simple, transparent PNG outlines.
 const GARMENT_TEMPLATES = [
-    { id: "kurta-template", label: "Kurta", src: "/cloth/kurta1.png" },
+    { id: "kurta-template", label: "Kurta", src: "/cloth/kurta.svg" },
     { id: "blazer-template", label: "Blazer", src: "/cloth/blazer1.png" },
     { id: "sherwani-template", label: "Sherwani", src: "/cloth/sherwani1.png" },
     { id: "pants-template", label: "Pants", src: "/cloth/pants1.png" },
@@ -194,7 +196,6 @@ export default function VirtualTrialClient() {
     setActiveId(null);
     await new Promise(resolve => setTimeout(resolve, 50));
     try {
-      const { default: html2canvas } = await import("html2canvas");
       const canvas = await html2canvas(stage, { backgroundColor: null, scale: 2 });
       const a = document.createElement("a");
       a.href = canvas.toDataURL("image/png");
@@ -374,3 +375,5 @@ export default function VirtualTrialClient() {
     </div>
   );
 }
+
+    
