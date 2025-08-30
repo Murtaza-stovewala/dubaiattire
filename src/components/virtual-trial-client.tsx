@@ -6,7 +6,6 @@ import { useToast } from "@/hooks/use-toast";
 import { Loader2, Wand2, Upload, Shirt, Scissors } from "lucide-react";
 import { Button } from "./ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
-import Image from "next/image";
 import html2canvas from "html2canvas";
 
 type Garment = {
@@ -280,7 +279,7 @@ export default function VirtualTrialClient() {
              </div>
              {fabricUrl && 
                 <div className="flex justify-center">
-                    <Image src={fabricUrl} alt="Fabric swatch" width={80} height={80} className="rounded-md object-cover w-20 h-20 border" />
+                    <img src={fabricUrl} alt="Fabric swatch" width={80} height={80} className="rounded-md object-cover w-20 h-20 border" />
                 </div>
               }
              <Button className="w-full" onClick={handleGenerateGarment} disabled={!selectedTemplate || !fabricUrl || isGenerating}>
@@ -388,5 +387,3 @@ export default function VirtualTrialClient() {
     </div>
   );
 }
-
-    
