@@ -22,7 +22,7 @@ type Garment = {
 
 // These are now templates/masks. They should be simple, transparent PNG outlines.
 const GARMENT_TEMPLATES = [
-    { id: "kurta-template", label: "Kurta", src: "/cloth/kurta.svg" },
+    { id: "kurta-template", label: "Kurta", src: "/cloth/kurta.png" },
     { id: "blazer-template", label: "Blazer", src: "/cloth/blazer1.png" },
     { id: "sherwani-template", label: "Sherwani", src: "/cloth/sherwani1.png" },
     { id: "pants-template", label: "Pants", src: "/cloth/pants1.png" },
@@ -100,6 +100,9 @@ export default function VirtualTrialClient() {
         const templateImg = document.createElement('img');
         templateImg.crossOrigin = "anonymous";
         templateImg.onload = () => {
+            if (templateImg.width === 0 || templateImg.height === 0) {
+              return reject(new Error('Template image has zero dimensions. Is it a valid PNG?'));
+            }
             const fabricImg = document.createElement('img');
             fabricImg.crossOrigin = "anonymous";
             fabricImg.onload = () => {
@@ -107,11 +110,11 @@ export default function VirtualTrialClient() {
                 canvas.width = templateImg.width;
                 canvas.height = templateImg.height;
                 const ctx = canvas.getContext('2d');
-                if (!ctx) return reject('Could not get canvas context');
+                if (!ctx) return reject(new Error('Could not get canvas context'));
 
                 // Create a pattern from the fabric
                 const pattern = ctx.createPattern(fabricImg, 'repeat');
-                if (!pattern) return reject('Could not create pattern');
+                if (!pattern) return reject(new Error('Could not create pattern from fabric.'));
 
                 // Fill the canvas with the pattern
                 ctx.fillStyle = pattern;
@@ -123,10 +126,10 @@ export default function VirtualTrialClient() {
 
                 resolve(canvas.toDataURL('image/png'));
             };
-            fabricImg.onerror = reject;
+            fabricImg.onerror = (err) => reject(new Error('Failed to load fabric image.'));
             fabricImg.src = fabricSrc;
         };
-        templateImg.onerror = reject;
+        templateImg.onerror = (err) => reject(new Error('Failed to load template image. Please use a transparent PNG.'));
         templateImg.src = templateSrc;
     });
   }
@@ -147,9 +150,9 @@ export default function VirtualTrialClient() {
       };
       setLayers(prev => [...prev, newGarment]);
       setActiveId(newGarment.id);
-    } catch(e) {
+    } catch(e: any) {
       console.error(e);
-      toast({ variant: "destructive", title: "Generation Failed", description: "Could not apply fabric to the garment." });
+      toast({ variant: "destructive", title: "Generation Failed", description: e.message || "Could not apply fabric to the garment." });
     } finally {
         setIsGenerating(false);
     }
@@ -374,6 +377,5 @@ export default function VirtualTrialClient() {
       </div>
     </div>
   );
-}
 
     
