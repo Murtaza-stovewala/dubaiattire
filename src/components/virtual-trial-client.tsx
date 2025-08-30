@@ -22,7 +22,7 @@ type Garment = {
 
 // These are now templates/masks. They should be simple, transparent PNG outlines.
 const GARMENT_TEMPLATES = [
-    { id: "kurta-template", label: "Kurta", src: "/cloth/kurta.png" },
+    { id: "kurta-template", label: "Kurta", src: "/cloth/kurtanew.png" },
     { id: "blazer-template", label: "Blazer", src: "/cloth/blazer1.png" },
     { id: "sherwani-template", label: "Sherwani", src: "/cloth/sherwani1.png" },
     { id: "pants-template", label: "Pants", src: "/cloth/pants1.png" },
@@ -380,4 +380,5 @@ export default function VirtualTrialClient() {
   );
 }
 
+    
     
