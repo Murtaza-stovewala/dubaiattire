@@ -104,7 +104,10 @@ export default function VirtualTrialClient() {
   
       const loadImage = (src: string) => new Promise<HTMLImageElement>((res, rej) => {
         const img = new Image();
-        img.crossOrigin = "anonymous";
+        // Only set crossOrigin for absolute URLs, not for local blobs or static assets
+        if (src.startsWith('http')) {
+          img.crossOrigin = "anonymous";
+        }
         img.onload = () => res(img);
         img.onerror = (err) => rej(new Error(`Failed to load image: ${src}. ${err.toString()}`));
         img.src = src;
