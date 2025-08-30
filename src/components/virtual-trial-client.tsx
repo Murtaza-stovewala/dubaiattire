@@ -2,13 +2,15 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2 } from "lucide-react";
+import { Loader2, Wand2, Upload, Shirt, Scissors } from "lucide-react";
 import { Button } from "./ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
+import Image from "next/image";
 
 type Garment = {
   id: string;
   label: string;
-  src: string;
+  src: string; // This will now be a data URL from canvas
   x: number;
   y: number;
   scale: number;
@@ -16,14 +18,13 @@ type Garment = {
   z: number;
 };
 
-// You need to add these transparent PNGs to your `public/cloth/` directory.
-const CATALOG: Garment[] = [
-    { id: "kurta-blue", label: "Blue Kurta", src: "/cloth/kurta1.png", x: 260, y: 350, scale: 1.5, rotate: 0, z: 10 },
-    { id: "blazer-black", label: "Black Blazer", src: "/cloth/blazer1.png", x: 260, y: 350, scale: 1.5, rotate: 0, z: 12 },
-    { id: "sherwani-gold", label: "Gold Sherwani", src: "/cloth/sherwani1.png", x: 260, y: 350, scale: 1.5, rotate: 0, z: 11 },
-    { id: "pants-white", label: "White Pants", src: "/cloth/pants1.png", x: 260, y: 550, scale: 1.5, rotate: 0, z: 8 },
+// These are now templates/masks. They should be simple, transparent PNG outlines.
+const GARMENT_TEMPLATES = [
+    { id: "kurta-template", label: "Kurta", src: "/cloth/kurta1.png" },
+    { id: "blazer-template", label: "Blazer", src: "/cloth/blazer1.png" },
+    { id: "sherwani-template", label: "Sherwani", src: "/cloth/sherwani1.png" },
+    { id: "pants-template", label: "Pants", src: "/cloth/pants1.png" },
 ];
-
 
 export default function VirtualTrialClient() {
   const stageRef = useRef<HTMLDivElement>(null);
@@ -33,6 +34,11 @@ export default function VirtualTrialClient() {
   const [personUrl, setPersonUrl] = useState<string | null>(null);
   const [cutoutUrl, setCutoutUrl] = useState<string | null>(null);
   const [loadingCutout, setLoadingCutout] = useState(false);
+  
+  const [fabricFile, setFabricFile] = useState<File | null>(null);
+  const [fabricUrl, setFabricUrl] = useState<string | null>(null);
+  const [selectedTemplate, setSelectedTemplate] = useState<(typeof GARMENT_TEMPLATES)[0] | null>(null);
+  const [isGenerating, setIsGenerating] = useState(false);
 
   const [layers, setLayers] = useState<Garment[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -41,8 +47,9 @@ export default function VirtualTrialClient() {
     return () => {
       if (personUrl) URL.revokeObjectURL(personUrl);
       if (cutoutUrl) URL.revokeObjectURL(cutoutUrl);
+      if (fabricUrl) URL.revokeObjectURL(fabricUrl);
     };
-  }, [personUrl, cutoutUrl]);
+  }, [personUrl, cutoutUrl, fabricUrl]);
 
   const handlePersonUpload = (file: File | null) => {
     setPersonFile(file);
@@ -52,6 +59,15 @@ export default function VirtualTrialClient() {
       setPersonUrl(URL.createObjectURL(file));
     } else {
       setPersonUrl(null);
+    }
+  };
+
+  const handleFabricUpload = (file: File | null) => {
+    setFabricFile(file);
+    if(file){
+        setFabricUrl(URL.createObjectURL(file));
+    } else {
+        setFabricUrl(null);
     }
   };
 
@@ -76,11 +92,65 @@ export default function VirtualTrialClient() {
       setLoadingCutout(false);
     }
   };
-  
-  const addLayer = (garment: Garment) => {
-    const newGarment = { ...garment, id: `${garment.id}-${crypto.randomUUID()}`};
-    setLayers(prev => [...prev, newGarment]);
-    setActiveId(newGarment.id);
+
+  const applyFabricToTemplate = async (templateSrc: string, fabricSrc: string): Promise<string> => {
+    return new Promise((resolve, reject) => {
+        const templateImg = document.createElement('img');
+        templateImg.crossOrigin = "anonymous";
+        templateImg.onload = () => {
+            const fabricImg = document.createElement('img');
+            fabricImg.crossOrigin = "anonymous";
+            fabricImg.onload = () => {
+                const canvas = document.createElement('canvas');
+                canvas.width = templateImg.width;
+                canvas.height = templateImg.height;
+                const ctx = canvas.getContext('2d');
+                if (!ctx) return reject('Could not get canvas context');
+
+                // Create a pattern from the fabric
+                const pattern = ctx.createPattern(fabricImg, 'repeat');
+                if (!pattern) return reject('Could not create pattern');
+
+                // Fill the canvas with the pattern
+                ctx.fillStyle = pattern;
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+                // Use the template as a mask
+                ctx.globalCompositeOperation = 'destination-in';
+                ctx.drawImage(templateImg, 0, 0);
+
+                resolve(canvas.toDataURL('image/png'));
+            };
+            fabricImg.onerror = reject;
+            fabricImg.src = fabricSrc;
+        };
+        templateImg.onerror = reject;
+        templateImg.src = templateSrc;
+    });
+  }
+
+  const handleGenerateGarment = async () => {
+    if (!selectedTemplate || !fabricUrl) {
+      toast({ variant: "destructive", title: "Missing selection", description: "Please select a garment and upload a fabric." });
+      return;
+    }
+    setIsGenerating(true);
+    try {
+      const texturedGarmentSrc = await applyFabricToTemplate(selectedTemplate.src, fabricUrl);
+      const newGarment: Garment = {
+        id: `${selectedTemplate.id}-${crypto.randomUUID()}`,
+        label: selectedTemplate.label,
+        src: texturedGarmentSrc,
+        x: 260, y: 350, scale: 1.5, rotate: 0, z: 10,
+      };
+      setLayers(prev => [...prev, newGarment]);
+      setActiveId(newGarment.id);
+    } catch(e) {
+      console.error(e);
+      toast({ variant: "destructive", title: "Generation Failed", description: "Could not apply fabric to the garment." });
+    } finally {
+        setIsGenerating(false);
+    }
   };
 
   const dragInfo = useRef<{ id: string; startX: number; startY: number; baseX: number; baseY: number } | null>(null);
@@ -117,13 +187,11 @@ export default function VirtualTrialClient() {
     setLayers((prev) => prev.filter((l) => l.id !== activeId));
     setActiveId(null);
   };
-  
+
   const exportPNG = async () => {
     const stage = stageRef.current;
     if (!stage) return;
-    // Set activeId to null to hide the dashed outline before exporting
     setActiveId(null);
-    // Brief delay to allow React to re-render without the outline
     await new Promise(resolve => setTimeout(resolve, 50));
     try {
       const { default: html2canvas } = await import("html2canvas");
@@ -147,76 +215,107 @@ export default function VirtualTrialClient() {
          onMouseLeave={onMouseUp}
     >
       <div className="lg:col-span-2 space-y-4">
-        <div className="space-y-3 p-4 rounded-lg border bg-card text-card-foreground">
-          <h2 className="text-lg font-headline font-semibold">1. Upload Your Photo</h2>
-          <input
-            type="file"
-            accept="image/*"
-            className="text-sm file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-primary file:text-primary-foreground hover:file:bg-primary/90"
-            onChange={(e) => handlePersonUpload(e.target.files?.[0] ?? null)}
-          />
-          <Button
-            className="w-full"
-            disabled={!personFile || loadingCutout}
-            onClick={callRemoveBg}
-          >
-            {loadingCutout ? <Loader2 className="animate-spin" /> : "Remove Background"}
-          </Button>
-        </div>
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2"><Upload className="w-5 h-5"/> 1. Upload Your Photo</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <input
+              type="file"
+              accept="image/*"
+              className="text-sm file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-primary file:text-primary-foreground hover:file:bg-primary/90"
+              onChange={(e) => handlePersonUpload(e.target.files?.[0] ?? null)}
+            />
+            <Button
+              className="w-full"
+              disabled={!personFile || loadingCutout}
+              onClick={callRemoveBg}
+            >
+              {loadingCutout ? <Loader2 className="animate-spin" /> : <><Scissors className="w-4 h-4 mr-2"/>Remove Background</>}
+            </Button>
+          </CardContent>
+        </Card>
 
-        <div className="space-y-3 p-4 rounded-lg border bg-card text-card-foreground">
-            <h2 className="text-lg font-headline font-semibold">2. Choose Garments</h2>
-             <div className="flex flex-wrap gap-2">
-                {CATALOG.map((g) => (
-                  <Button
-                    key={g.id}
-                    variant="outline"
-                    onClick={() => addLayer(g)}
-                  >
-                    + {g.label}
-                  </Button>
-                ))}
-            </div>
-        </div>
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2"><Shirt className="w-5 h-5"/> 2. Design Garment</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+             <div>
+                <label className="text-sm font-medium mb-2 block">Select Template</label>
+                <div className="flex flex-wrap gap-2">
+                    {GARMENT_TEMPLATES.map((g) => (
+                      <Button
+                        key={g.id}
+                        variant={selectedTemplate?.id === g.id ? "default" : "outline"}
+                        onClick={() => setSelectedTemplate(g)}
+                      >
+                        {g.label}
+                      </Button>
+                    ))}
+                </div>
+             </div>
+             <div>
+                <label className="text-sm font-medium mb-2 block">Upload Fabric</label>
+                 <input
+                  type="file"
+                  accept="image/*"
+                  className="text-sm w-full file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-primary file:text-primary-foreground hover:file:bg-primary/90"
+                  onChange={(e) => handleFabricUpload(e.target.files?.[0] ?? null)}
+                />
+             </div>
+             {fabricUrl && 
+                <div className="flex justify-center">
+                    <Image src={fabricUrl} alt="Fabric swatch" width={80} height={80} className="rounded-md object-cover w-20 h-20 border" />
+                </div>
+              }
+             <Button className="w-full" onClick={handleGenerateGarment} disabled={!selectedTemplate || !fabricUrl || isGenerating}>
+                {isGenerating ? <Loader2 className="animate-spin" /> : <><Wand2 className="w-4 h-4 mr-2"/>Generate Garment</>}
+             </Button>
+          </CardContent>
+        </Card>
 
         {activeLayer && (
-          <div className="space-y-3 p-4 rounded-lg border bg-card text-card-foreground">
-            <h2 className="text-lg font-headline font-semibold">3. Adjust & Export</h2>
-            <div className="grid grid-cols-3 gap-x-2 gap-y-3 items-center">
-              <label className="text-sm">Scale</label>
-              <input
-                type="range" min={0.2} max={3} step={0.01}
-                value={activeLayer.scale}
-                onChange={(e) => updateActive({ scale: parseFloat(e.target.value) })}
-                className="col-span-2"
-              />
+          <Card>
+            <CardHeader>
+                <CardTitle className="flex items-center gap-2">3. Adjust & Export</CardTitle>
+            </CardHeader>
+            <CardContent>
+                <div className="grid grid-cols-3 gap-x-2 gap-y-3 items-center">
+                  <label className="text-sm">Scale</label>
+                  <input
+                    type="range" min={0.2} max={3} step={0.01}
+                    value={activeLayer.scale}
+                    onChange={(e) => updateActive({ scale: parseFloat(e.target.value) })}
+                    className="col-span-2 accent-primary"
+                  />
 
-              <label className="text-sm">Rotate</label>
-              <input
-                type="range" min={-45} max={45} step={0.5}
-                value={activeLayer.rotate}
-                onChange={(e) => updateActive({ rotate: parseFloat(e.target.value) })}
-                className="col-span-2"
-              />
+                  <label className="text-sm">Rotate</label>
+                  <input
+                    type="range" min={-45} max={45} step={0.5}
+                    value={activeLayer.rotate}
+                    onChange={(e) => updateActive({ rotate: parseFloat(e.target.value) })}
+                    className="col-span-2 accent-primary"
+                  />
 
-              <label className="text-sm">Layer</label>
-              <input
-                type="range" min={1} max={30} step={1}
-                value={activeLayer.z}
-                onChange={(e) => updateActive({ z: parseInt(e.target.value, 10) })}
-                className="col-span-2"
-              />
-            </div>
-
-            <div className="flex gap-2 pt-2">
-              <Button onClick={removeActive} variant="outline" className="flex-1">
-                Remove
-              </Button>
-              <Button onClick={exportPNG} className="flex-1">
-                Export as PNG
-              </Button>
-            </div>
-          </div>
+                  <label className="text-sm">Layer</label>
+                  <input
+                    type="range" min={1} max={30} step={1}
+                    value={activeLayer.z}
+                    onChange={(e) => updateActive({ z: parseInt(e.target.value, 10) })}
+                    className="col-span-2 accent-primary"
+                  />
+                </div>
+                <div className="flex gap-2 pt-4">
+                  <Button onClick={removeActive} variant="outline" className="flex-1">
+                    Remove
+                  </Button>
+                  <Button onClick={exportPNG} className="flex-1">
+                    Export as PNG
+                  </Button>
+                </div>
+            </CardContent>
+          </Card>
         )}
       </div>
 
@@ -244,6 +343,7 @@ export default function VirtualTrialClient() {
                 position: "absolute",
                 left: l.x,
                 top: l.y,
+                width: 300, // Give layers a consistent base width for scaling
                 transform: `translate(-50%, -50%) scale(${l.scale}) rotate(${l.rotate}deg)`,
                 zIndex: l.z,
                 cursor: "grab",
