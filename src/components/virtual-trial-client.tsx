@@ -2,25 +2,13 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useToast } from "@/hooks/use-toast";
-import { generateGarment } from "@/ai/flows/generate-garment";
 import { Loader2 } from "lucide-react";
 import { Button } from "./ui/button";
-import { RadioGroup, RadioGroupItem } from "./ui/radio-group";
-import { Label } from "./ui/label";
-import { z } from "zod";
 
-// Define Zod schemas and types here in the client component
-export const GenerateGarmentInputSchema = z.object({
-  garmentType: z.string().describe('The type of garment to generate (e.g., "Kurta", "Blazer").'),
-  fabricDataUrl: z.string().describe("A photo of the fabric, as a data URI that must include a MIME type and use Base64 encoding. Expected format: 'data:<mimetype>;base64,<encoded_data>'."),
-});
-export type GenerateGarmentInput = z.infer<typeof GenerateGarmentInputSchema>;
-
-
-type GarmentLayer = {
+type Garment = {
   id: string;
   label: string;
-  src: string; // data URL from generation
+  src: string;
   x: number;
   y: number;
   scale: number;
@@ -28,54 +16,44 @@ type GarmentLayer = {
   z: number;
 };
 
-const GARMENT_TYPES = ["Kurta", "Blazer", "Sherwani", "Pants"];
+// You need to add these transparent PNGs to your `public/cloth/` directory.
+const CATALOG: Garment[] = [
+    { id: "kurta-blue", label: "Blue Kurta", src: "/cloth/kurta1.png", x: 260, y: 350, scale: 1.5, rotate: 0, z: 10 },
+    { id: "blazer-black", label: "Black Blazer", src: "/cloth/blazer1.png", x: 260, y: 350, scale: 1.5, rotate: 0, z: 12 },
+    { id: "sherwani-gold", label: "Gold Sherwani", src: "/cloth/sherwani1.png", x: 260, y: 350, scale: 1.5, rotate: 0, z: 11 },
+    { id: "pants-white", label: "White Pants", src: "/cloth/pants1.png", x: 260, y: 550, scale: 1.5, rotate: 0, z: 8 },
+];
+
 
 export default function VirtualTrialClient() {
   const stageRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
 
-  // Step 1: Person Photo
   const [personFile, setPersonFile] = useState<File | null>(null);
   const [personUrl, setPersonUrl] = useState<string | null>(null);
   const [cutoutUrl, setCutoutUrl] = useState<string | null>(null);
   const [loadingCutout, setLoadingCutout] = useState(false);
 
-  // Step 2: Garment Design
-  const [garmentType, setGarmentType] = useState<string>("Kurta");
-  const [fabricFile, setFabricFile] = useState<File | null>(null);
-  const [fabricUrl, setFabricUrl] = useState<string | null>(null);
-  const [generatingGarment, setGeneratingGarment] = useState(false);
-
-  // Stage
-  const [layers, setLayers] = useState<GarmentLayer[]>([]);
+  const [layers, setLayers] = useState<Garment[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
 
   useEffect(() => {
     return () => {
       if (personUrl) URL.revokeObjectURL(personUrl);
       if (cutoutUrl) URL.revokeObjectURL(cutoutUrl);
-      if (fabricUrl) URL.revokeObjectURL(fabricUrl);
     };
-  }, [personUrl, cutoutUrl, fabricUrl]);
+  }, [personUrl, cutoutUrl]);
 
   const handlePersonUpload = (file: File | null) => {
     setPersonFile(file);
     setCutoutUrl(null);
+    setLayers([]); // Clear layers when new person is uploaded
     if (file) {
       setPersonUrl(URL.createObjectURL(file));
     } else {
       setPersonUrl(null);
     }
   };
-  
-  const handleFabricUpload = (file: File | null) => {
-    setFabricFile(file);
-     if (file) {
-      setFabricUrl(URL.createObjectURL(file));
-    } else {
-      setFabricUrl(null);
-    }
-  }
 
   const callRemoveBg = async () => {
     if (!personFile) return;
@@ -98,48 +76,12 @@ export default function VirtualTrialClient() {
       setLoadingCutout(false);
     }
   };
-
-  const handleGenerateGarment = async () => {
-    if (!fabricFile || !garmentType) return;
-    setGeneratingGarment(true);
-    try {
-      const reader = new FileReader();
-      reader.readAsDataURL(fabricFile);
-      reader.onload = async () => {
-        const fabricDataUrl = reader.result as string;
-        
-        const parseResult = GenerateGarmentInputSchema.safeParse({ garmentType, fabricDataUrl });
-        if (!parseResult.success) {
-          throw new Error(`Invalid input: ${parseResult.error.message}`);
-        }
-        const input: GenerateGarmentInput = parseResult.data;
-        const result = await generateGarment(input);
-
-        const newGarment: GarmentLayer = {
-            id: `garment-${crypto.randomUUID()}`,
-            label: garmentType,
-            src: result.garmentDataUrl,
-            x: 260, // default position
-            y: 350,
-            scale: 1.5,
-            rotate: 0,
-            z: 10,
-        };
-        setLayers(prev => [...prev, newGarment]);
-        setActiveId(newGarment.id);
-        toast({ title: "Garment Generated", description: "Your custom garment is ready to try on." });
-      };
-      reader.onerror = (error) => {
-        throw new Error("Could not read fabric file.");
-      }
-    } catch (e: any) {
-      console.error(e);
-      toast({ variant: "destructive", title: "AI Error", description: `Could not generate garment: ${e.message}` });
-    } finally {
-        setGeneratingGarment(false);
-    }
-  }
-
+  
+  const addLayer = (garment: Garment) => {
+    const newGarment = { ...garment, id: `${garment.id}-${crypto.randomUUID()}`};
+    setLayers(prev => [...prev, newGarment]);
+    setActiveId(newGarment.id);
+  };
 
   const dragInfo = useRef<{ id: string; startX: number; startY: number; baseX: number; baseY: number } | null>(null);
 
@@ -165,7 +107,7 @@ export default function VirtualTrialClient() {
     dragInfo.current = null;
   };
 
-  const updateActive = (patch: Partial<GarmentLayer>) => {
+  const updateActive = (patch: Partial<Garment>) => {
     if (!activeId) return;
     setLayers((prev) => prev.map((l) => (l.id === activeId ? { ...l, ...patch } : l)));
   };
@@ -175,10 +117,14 @@ export default function VirtualTrialClient() {
     setLayers((prev) => prev.filter((l) => l.id !== activeId));
     setActiveId(null);
   };
-
+  
   const exportPNG = async () => {
     const stage = stageRef.current;
     if (!stage) return;
+    // Set activeId to null to hide the dashed outline before exporting
+    setActiveId(null);
+    // Brief delay to allow React to re-render without the outline
+    await new Promise(resolve => setTimeout(resolve, 50));
     try {
       const { default: html2canvas } = await import("html2canvas");
       const canvas = await html2canvas(stage, { backgroundColor: null, scale: 2 });
@@ -219,33 +165,18 @@ export default function VirtualTrialClient() {
         </div>
 
         <div className="space-y-3 p-4 rounded-lg border bg-card text-card-foreground">
-          <h2 className="text-lg font-headline font-semibold">2. Design Your Garment</h2>
-          
-          <Label>Select Garment Type</Label>
-          <RadioGroup value={garmentType} onValueChange={setGarmentType} className="flex gap-4">
-            {GARMENT_TYPES.map(type => (
-                <div key={type} className="flex items-center space-x-2">
-                    <RadioGroupItem value={type} id={`r-${type}`} />
-                    <Label htmlFor={`r-${type}`}>{type}</Label>
-                </div>
-            ))}
-          </RadioGroup>
-          
-          <Label>Upload Fabric Swatch</Label>
-           <input
-            type="file"
-            accept="image/*"
-            className="text-sm file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-primary file:text-primary-foreground hover:file:bg-primary/90"
-            onChange={(e) => handleFabricUpload(e.target.files?.[0] ?? null)}
-          />
-
-          <Button
-            className="w-full"
-            disabled={!fabricFile || !garmentType || generatingGarment}
-            onClick={handleGenerateGarment}
-          >
-            {generatingGarment ? <Loader2 className="animate-spin" /> : `Generate ${garmentType}`}
-          </Button>
+            <h2 className="text-lg font-headline font-semibold">2. Choose Garments</h2>
+             <div className="flex flex-wrap gap-2">
+                {CATALOG.map((g) => (
+                  <Button
+                    key={g.id}
+                    variant="outline"
+                    onClick={() => addLayer(g)}
+                  >
+                    + {g.label}
+                  </Button>
+                ))}
+            </div>
         </div>
 
         {activeLayer && (
@@ -318,7 +249,7 @@ export default function VirtualTrialClient() {
                 cursor: "grab",
               }}
             >
-              <div style={{
+               <div style={{
                 outline: activeId === l.id ? "2px dashed hsl(var(--primary))" : "none",
                 outlineOffset: '4px',
                 borderRadius: '8px',
