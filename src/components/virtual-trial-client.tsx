@@ -1,351 +1,273 @@
-'use client';
+"use client";
 
-import React, { useState, useRef } from 'react';
-import Image from 'next/image';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Upload, Camera, Loader2, Wand2, Scissors, Check, X } from 'lucide-react';
-import { virtualTrial, removeBackground } from '@/ai/flows/virtual-trial';
-import { useToast } from "@/hooks/use-toast"
-import { Label } from "@/components/ui/label"
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
+import { useEffect, useRef, useState } from "react";
 
+type Garment = {
+  id: string;
+  label: string;
+  src: string;
+  // default placement/scaling
+  x: number; // px from left
+  y: number; // px from top
+  scale: number; // 1 = 100%
+  rotate: number; // degrees
+  z: number; // layer order
+};
 
-type TrialStep = 'upload' | 'cutout' | 'select' | 'result';
-type ClothingType = 'Blazer' | 'Kurta';
+// NOTE: Make sure these PNG files exist in your `public/cloth/` directory.
+const CATALOG: Garment[] = [
+  { id: "kurta1", label: "Blue Kurta", src: "/cloth/kurta1.png", x: 260, y: 250, scale: 1.5, rotate: 0, z: 10 },
+  { id: "blazer1", label: "Black Blazer", src: "/cloth/blazer1.png", x: 260, y: 240, scale: 1.6, rotate: 0, z: 12 },
+  { id: "pants1", label: "Beige Pants", src: "/cloth/pants1.png", x: 260, y: 450, scale: 1.5, rotate: 0, z: 8 },
+];
 
 export default function VirtualTrialClient() {
-  const [step, setStep] = useState<TrialStep>('upload');
-  const [userImage, setUserImage] = useState<string | null>(null);
-  const [cutoutImage, setCutoutImage] = useState<string | null>(null);
-  const [materialImage, setMaterialImage] = useState<string | null>(null);
-  const [clothingType, setClothingType] = useState<ClothingType>('Blazer');
-  const [resultImage, setResultImage] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
-  const [loadingMessage, setLoadingMessage] = useState('');
-  
-  const { toast } = useToast();
-  const userFileInputRef = useRef<HTMLInputElement>(null);
-  const materialFileInputRef = useRef<HTMLInputElement>(null);
+  const stageRef = useRef<HTMLDivElement>(null);
+  const [personFile, setPersonFile] = useState<File | null>(null);
+  const [personUrl, setPersonUrl] = useState<string | null>(null);
+  const [cutoutUrl, setCutoutUrl] = useState<string | null>(null);
+  const [loadingCutout, setLoadingCutout] = useState(false);
 
-  const handleImageUpload = (event: React.ChangeEvent<HTMLInputElement>, imageSetter: React.Dispatch<React.SetStateAction<string | null>>) => {
-    const file = event.target.files?.[0];
+  const [layers, setLayers] = useState<Garment[]>([]);
+  const [activeId, setActiveId] = useState<string | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (personUrl) URL.revokeObjectURL(personUrl);
+      if (cutoutUrl) URL.revokeObjectURL(cutoutUrl);
+    };
+  }, [personUrl, cutoutUrl]);
+
+  const handleUpload = (file: File | null) => {
+    setPersonFile(file);
+    setCutoutUrl(null);
     if (file) {
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        imageSetter(e.target?.result as string);
-        if(imageSetter === setUserImage) {
-            setCutoutImage(null);
-            setResultImage(null);
-            setStep('upload'); 
-        }
-      };
-      reader.readAsDataURL(file);
+      const url = URL.createObjectURL(file);
+      setPersonUrl(url);
+    } else {
+      setPersonUrl(null);
     }
   };
 
-  const handleGenerateCutout = async () => {
-    if (!userImage) {
-      toast({
-        title: "No User Image",
-        description: "Please upload a photo of yourself first.",
-        variant: "destructive",
-      });
-      return;
-    }
-    setIsLoading(true);
-    setLoadingMessage('Removing background...');
+  const callRemoveBg = async () => {
+    if (!personFile) return;
+    setLoadingCutout(true);
     try {
-      const result = await removeBackground({ photoDataUri: userImage });
-      if (result.cutoutImage) {
-        setCutoutImage(result.cutoutImage);
-        setStep('cutout');
-      } else {
-        throw new Error("Failed to remove background.");
+      const fd = new FormData();
+      fd.append("image_file", personFile);
+
+      const res = await fetch("/api/remove-bg", { method: "POST", body: fd });
+      if (!res.ok) {
+        const errorData = await res.json();
+        throw new Error(errorData.details || "Background removal proxy failed");
       }
-    } catch (error) {
-      console.error('Background removal failed:', error);
-      toast({
-        title: "Background Removal Failed",
-        description: "Could not process the image. Please try a different one.",
-        variant: "destructive",
-      });
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      setCutoutUrl(url);
+    } catch (e: any) {
+      console.error(e);
+      alert(`Background removal failed: ${e.message}`);
     } finally {
-      setIsLoading(false);
+      setLoadingCutout(false);
     }
   };
 
-  const handleVirtualTrial = async () => {
-    if (!cutoutImage || !materialImage) {
-      toast({
-          title: "Missing Information",
-          description: "Please ensure you have a cutout and have uploaded a material photo.",
-          variant: "destructive",
-      });
-      return;
-    }
-
-    setIsLoading(true);
-    setLoadingMessage('Generating your custom outfit...');
-    setStep('result');
-
-    try {
-      const result = await virtualTrial({
-        photoDataUri: cutoutImage,
-        materialDataUri: materialImage,
-        clothingType: clothingType,
-      });
-      
-      if (result.overlayedImage) {
-        setResultImage(result.overlayedImage);
-      } else {
-        throw new Error("The AI model did not return an image.");
-      }
-    } catch (error) {
-      console.error('Virtual trial failed:', error);
-      toast({
-          title: "Virtual Trial Failed",
-          description: "Could not generate the virtual try-on. Please try again.",
-          variant: "destructive",
-      });
-       setStep('select');
-    } finally {
-      setIsLoading(false);
-    }
+  const addLayer = (g: Garment) => {
+    const unique = { ...g, id: `${g.id}-${crypto.randomUUID()}` };
+    setLayers((prev) => [...prev, unique]);
+    setActiveId(unique.id);
   };
-  
-  const reset = () => {
-    setUserImage(null);
-    setCutoutImage(null);
-    setMaterialImage(null);
-    setResultImage(null);
-    setStep('upload');
-    if(userFileInputRef.current) {
-        userFileInputRef.current.value = "";
-    }
-     if(materialFileInputRef.current) {
-        materialFileInputRef.current.value = "";
-    }
-  }
 
-  const StepIndicator = ({ currentStep }: { currentStep: TrialStep }) => {
-    const steps: {id: TrialStep, name: string}[] = [
-        { id: 'upload', name: 'Upload Photo' },
-        { id: 'cutout', name: 'Create Cutout' },
-        { id: 'select', name: 'Design Attire' },
-        { id: 'result', name: 'View Result' },
-    ];
-    const currentStepIndex = steps.findIndex(s => s.id === currentStep);
+  const dragInfo = useRef<{ id: string; startX: number; startY: number; baseX: number; baseY: number } | null>(null);
 
-    return (
-        <div className="flex justify-between items-center mb-8">
-            {steps.map((s, index) => (
-                <React.Fragment key={s.id}>
-                    <div className="flex flex-col items-center">
-                        <div className={`w-8 h-8 rounded-full flex items-center justify-center ${index <= currentStepIndex ? 'bg-primary text-primary-foreground' : 'bg-secondary text-secondary-foreground'}`}>
-                           {index < currentStepIndex ? <Check size={16} /> : index + 1}
-                        </div>
-                        <p className={`mt-2 text-sm text-center ${index <= currentStepIndex ? 'text-primary font-semibold' : 'text-muted-foreground'}`}>{s.name}</p>
-                    </div>
-                    {index < steps.length -1 && <div className={`flex-1 h-1 mx-2 ${index < currentStepIndex ? 'bg-primary' : 'bg-secondary'}`} />}
-                </React.Fragment>
-            ))}
-        </div>
+  const onMouseDown = (e: React.MouseEvent, id: string) => {
+    e.preventDefault();
+    const target = layers.find((l) => l.id === id);
+    if (!target || !stageRef.current) return;
+    
+    const stageRect = stageRef.current.getBoundingClientRect();
+    const sx = e.clientX;
+    const sy = e.clientY;
+    dragInfo.current = { id, startX: sx, startY: sy, baseX: target.x, baseY: target.y };
+    setActiveId(id);
+  };
+
+  const onMouseMove = (e: React.MouseEvent) => {
+    if (!dragInfo.current || !stageRef.current) return;
+    const { id, startX, startY, baseX, baseY } = dragInfo.current;
+    
+    const dx = e.clientX - startX;
+    const dy = e.clientY - startY;
+
+    setLayers((prev) =>
+      prev.map((l) => (l.id === id ? { ...l, x: baseX + dx, y: baseY + dy } : l))
     );
-  }
+  };
 
+  const onMouseUp = () => {
+    dragInfo.current = null;
+  };
+
+  const updateActive = (patch: Partial<Omit<Garment, 'id' | 'label' | 'src'>>) => {
+    if (!activeId) return;
+    setLayers((prev) => prev.map((l) => (l.id === activeId ? { ...l, ...patch } : l)));
+  };
+
+  const removeActive = () => {
+    if (!activeId) return;
+    setLayers((prev) => prev.filter((l) => l.id !== activeId));
+    setActiveId(null);
+  };
+
+  const exportPNG = async () => {
+    const stage = stageRef.current;
+    if (!stage) return;
+    try {
+      const { default: html2canvas } = await import("html2canvas");
+      const canvas = await html2canvas(stage, { backgroundColor: null, scale: 2 });
+      const data = canvas.toDataURL("image/png");
+      const a = document.createElement("a");
+      a.href = data;
+      a.download = "dubai-royal-attire-try-on.png";
+      a.click();
+    } catch (e) {
+      console.error("Failed to export PNG:", e);
+      alert("Could not export image. Please try again.");
+    }
+  };
+
+  const activeLayer = layers.find(l => l.id === activeId);
 
   return (
-    <div className="container mx-auto max-w-5xl px-4 py-16">
-      <div className="text-center mb-12">
-        <h1 className="font-headline text-4xl md:text-5xl font-bold">Virtual Trial Room</h1>
-        <p className="mt-4 max-w-2xl mx-auto text-muted-foreground text-lg">
-          Follow the steps to see how our collection looks on you.
-        </p>
+    <div className="grid grid-cols-1 lg:grid-cols-5 gap-6 p-4"
+         onMouseMove={onMouseMove}
+         onMouseUp={onMouseUp}
+         onMouseLeave={onMouseUp}
+    >
+      <div className="lg:col-span-2 space-y-4">
+        <div className="space-y-3 p-4 rounded-lg border bg-card text-card-foreground">
+          <h2 className="text-lg font-headline font-semibold">1. Upload Your Photo</h2>
+          <input
+            type="file"
+            accept="image/*"
+            className="text-sm file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-primary file:text-primary-foreground hover:file:bg-primary/90"
+            onChange={(e) => handleUpload(e.target.files?.[0] ?? null)}
+          />
+          <button
+            className="w-full px-4 py-2 rounded-md bg-primary text-primary-foreground disabled:opacity-50"
+            disabled={!personFile || loadingCutout}
+            onClick={callRemoveBg}
+          >
+            {loadingCutout ? "Processing..." : "Remove Background"}
+          </button>
+        </div>
+
+        <div className="space-y-3 p-4 rounded-lg border bg-card text-card-foreground">
+          <h2 className="text-lg font-headline font-semibold">2. Add Garments</h2>
+          <div className="flex flex-wrap gap-2">
+            {CATALOG.map((g) => (
+              <button
+                key={g.id}
+                onClick={() => addLayer(g)}
+                className="px-3 py-1.5 rounded-md border bg-secondary hover:bg-accent hover:text-accent-foreground text-sm"
+              >
+                + {g.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {activeLayer && (
+          <div className="space-y-3 p-4 rounded-lg border bg-card text-card-foreground">
+            <h2 className="text-lg font-headline font-semibold">3. Adjust Layer</h2>
+            <div className="grid grid-cols-3 gap-x-2 gap-y-3 items-center">
+              <label className="text-sm">Scale</label>
+              <input
+                type="range" min={0.2} max={3} step={0.01}
+                value={activeLayer.scale}
+                onChange={(e) => updateActive({ scale: parseFloat(e.target.value) })}
+                className="col-span-2"
+              />
+
+              <label className="text-sm">Rotate</label>
+              <input
+                type="range" min={-45} max={45} step={0.5}
+                value={activeLayer.rotate}
+                onChange={(e) => updateActive({ rotate: parseFloat(e.target.value) })}
+                className="col-span-2"
+              />
+
+              <label className="text-sm">Layer</label>
+              <input
+                type="range" min={1} max={30} step={1}
+                value={activeLayer.z}
+                onChange={(e) => updateActive({ z: parseInt(e.target.value, 10) })}
+                className="col-span-2"
+              />
+            </div>
+
+            <div className="flex gap-2 pt-2">
+              <button onClick={removeActive} className="flex-1 px-3 py-2 rounded-md border text-sm">
+                Remove
+              </button>
+              <button onClick={exportPNG} className="flex-1 px-3 py-2 rounded-md bg-primary text-primary-foreground text-sm">
+                Export as PNG
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
-        <Card>
-            <CardContent className="p-6">
-                <StepIndicator currentStep={step} />
+      <div className="lg:col-span-3">
+        <div
+          ref={stageRef}
+          className="relative w-full max-w-[520px] aspect-[3/4] mx-auto rounded-lg border overflow-hidden bg-muted/50"
+          onClick={() => setActiveId(null)}
+        >
+          { (cutoutUrl ?? personUrl) ? (
+            <img
+              src={(cutoutUrl ?? personUrl) as string}
+              alt="person"
+              className="absolute inset-0 w-full h-full object-contain"
+              draggable={false}
+            />
+          ) : (
+            <div className="absolute inset-0 flex items-center justify-center text-sm text-muted-foreground">
+              Upload a photo to begin
+            </div>
+          )}
 
-                {step === 'upload' && (
-                    <div className="text-center">
-                        <CardHeader>
-                            <CardTitle>Step 1: Upload Your Photo</CardTitle>
-                            <CardDescription>For best results, use a clear, full-body photo with good lighting.</CardDescription>
-                        </CardHeader>
-                         <div className="flex flex-col items-center justify-center space-y-4 p-4 border-2 border-dashed rounded-lg h-96 my-4">
-                            {userImage ? (
-                                <div className="relative w-full h-full">
-                                <Image src={userImage} alt="User upload" layout="fill" objectFit="contain" />
-                                </div>
-                            ) : (
-                                <div className="text-center text-muted-foreground">
-                                <Camera className="mx-auto h-12 w-12" />
-                                <p className="mt-2">Your photo will appear here</p>
-                                </div>
-                            )}
-                        </div>
-                        <input
-                            type="file"
-                            id="imageUpload"
-                            accept="image/*"
-                            onChange={(e) => handleImageUpload(e, setUserImage)}
-                            className="hidden"
-                            ref={userFileInputRef}
-                            />
-                        <Button asChild variant="outline" size="lg">
-                            <label htmlFor="imageUpload" className="cursor-pointer">
-                                <Upload className="mr-2 h-4 w-4" />
-                                Upload Photo
-                            </label>
-                        </Button>
-                        {userImage && (
-                            <Button onClick={handleGenerateCutout} disabled={isLoading} size="lg" className="ml-4">
-                                {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Scissors className="mr-2 h-4 w-4" />}
-                                Create Cutout
-                            </Button>
-                        )}
-                    </div>
-                )}
-                
-                {step === 'cutout' && (
-                    <div className="text-center">
-                         <CardHeader>
-                            <CardTitle>Step 2: Confirm Your Cutout</CardTitle>
-                            <CardDescription>We&apos;ve removed the background. Does this look right?</CardDescription>
-                        </CardHeader>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 my-4">
-                            <div className="space-y-2">
-                                <p className="font-semibold">Original</p>
-                                <div className="relative aspect-[3/4] w-full border rounded-lg overflow-hidden">
-                                     {userImage && <Image src={userImage} alt="Original user" layout="fill" objectFit="contain" />}
-                                </div>
-                            </div>
-                            <div className="space-y-2">
-                                <p className="font-semibold">Cutout</p>
-                                <div className="relative aspect-[3/4] w-full border rounded-lg overflow-hidden bg-gray-100 dark:bg-gray-800">
-                                     {cutoutImage && <Image src={cutoutImage} alt="User cutout" layout="fill" objectFit="contain" />}
-                                </div>
-                            </div>
-                        </div>
-                        <Button variant="outline" onClick={() => setStep('upload')}>
-                            <X className="mr-2 h-4 w-4" /> Re-upload Photo
-                        </Button>
-                        <Button onClick={() => setStep('select')} className="ml-4">
-                            <Check className="mr-2 h-4 w-4" /> Looks Good, Continue
-                        </Button>
-                    </div>
-                )}
-                
-                {step === 'select' && (
-                     <div>
-                        <CardHeader className="text-center">
-                            <CardTitle>Step 3: Design Your Attire</CardTitle>
-                            <CardDescription>Upload a fabric or material, then choose the clothing style.</CardDescription>
-                        </CardHeader>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-start">
-                             <div className="text-center space-y-4">
-                                <h3 className="font-semibold text-lg">Your Cutout</h3>
-                                <div className="relative aspect-[3/4] w-full max-w-sm mx-auto border rounded-lg overflow-hidden bg-gray-100 dark:bg-gray-800">
-                                    {cutoutImage && <Image src={cutoutImage} alt="User cutout for selection" layout="fill" objectFit="contain" />}
-                                </div>
-                                <Button variant="outline" onClick={() => setStep('cutout')}>Back to Cutout</Button>
-                             </div>
-                             <div className="space-y-6">
-                                <div className="space-y-4 text-center">
-                                    <h3 className="font-semibold text-lg">Upload Material</h3>
-                                    <div className="flex flex-col items-center justify-center space-y-4 p-4 border-2 border-dashed rounded-lg h-64 w-full">
-                                        {materialImage ? (
-                                            <div className="relative w-full h-full">
-                                            <Image src={materialImage} alt="Material upload" layout="fill" objectFit="cover" className="rounded-md" />
-                                            </div>
-                                        ) : (
-                                            <div className="text-center text-muted-foreground">
-                                            <Upload className="mx-auto h-10 w-10" />
-                                            <p className="mt-2">Upload a fabric photo</p>
-                                            </div>
-                                        )}
-                                    </div>
-                                    <input
-                                        type="file"
-                                        id="materialUpload"
-                                        accept="image/*"
-                                        onChange={(e) => handleImageUpload(e, setMaterialImage)}
-                                        className="hidden"
-                                        ref={materialFileInputRef}
-                                        />
-                                    <Button asChild variant="outline" size="sm">
-                                        <label htmlFor="materialUpload" className="cursor-pointer">
-                                            <Upload className="mr-2 h-4 w-4" />
-                                            {materialImage ? 'Change Material' : 'Upload Material'}
-                                        </label>
-                                    </Button>
-                                </div>
+          {layers.map((l) => (
+            <div
+              key={l.id}
+              onMouseDown={(e) => onMouseDown(e, l.id)}
+              onClick={(e) => { e.stopPropagation(); setActiveId(l.id); }}
+              style={{
+                position: "absolute",
+                left: l.x,
+                top: l.y,
+                width: 300, // Fixed width for consistent scaling reference
+                transform: `translate(-50%, -50%) scale(${l.scale}) rotate(${l.rotate}deg)`,
+                zIndex: l.z,
+                cursor: "grab",
+              }}
+            >
+              <div style={{
+                outline: activeId === l.id ? "2px dashed hsl(var(--primary))" : "none",
+                outlineOffset: '4px',
+                borderRadius: '8px',
+                transition: 'outline 0.2s'
+              }}>
+                <img src={l.src} alt={l.label} className="w-full select-none pointer-events-none" draggable={false} />
+              </div>
+            </div>
+          ))}
+        </div>
 
-                                <div className="space-y-4">
-                                     <h3 className="font-semibold text-lg text-center">Choose Style</h3>
-                                    <RadioGroup
-                                        defaultValue="Blazer"
-                                        className="flex justify-center gap-4"
-                                        onValueChange={(value: ClothingType) => setClothingType(value)}
-                                        >
-                                        <div className="flex items-center space-x-2">
-                                            <RadioGroupItem value="Blazer" id="r-blazer" />
-                                            <Label htmlFor="r-blazer">Blazer</Label>
-                                        </div>
-                                        <div className="flex items-center space-x-2">
-                                            <RadioGroupItem value="Kurta" id="r-kurta" />
-                                            <Label htmlFor="r-kurta">Kurta</Label>
-                                        </div>
-                                    </RadioGroup>
-                                </div>
-
-                                <Button onClick={handleVirtualTrial} disabled={isLoading || !materialImage} className="w-full">
-                                    {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Wand2 className="mr-2 h-4 w-4" />}
-                                    Generate Outfit
-                                </Button>
-                             </div>
-                        </div>
-                     </div>
-                )}
-                
-                {step === 'result' && (
-                    <div className="text-center">
-                        <CardHeader>
-                            <CardTitle>Step 4: Your Virtual Look</CardTitle>
-                            <CardDescription>Here is your personalized virtual trial result!</CardDescription>
-                        </CardHeader>
-                        <div className="relative aspect-[3/4] max-w-md mx-auto border rounded-lg overflow-hidden my-4 bg-gray-100 dark:bg-gray-800">
-                          {isLoading ? (
-                            <div className="flex flex-col items-center justify-center text-muted-foreground h-full">
-                                <Loader2 className="h-12 w-12 animate-spin text-accent" />
-                                <p className="mt-4">{loadingMessage}</p>
-                            </div>
-                        ) : resultImage ? (
-                            <Image src={resultImage} alt="Virtual trial result" layout="fill" objectFit="contain" />
-                        ) : (
-                             <Alert variant="destructive">
-                                <AlertTitle>Generation Failed</AlertTitle>
-                                <AlertDescription>
-                                    Something went wrong. Please try again with a different selection or photo.
-                                </AlertDescription>
-                            </Alert>
-                        )}
-                        </div>
-                         <Button variant="outline" onClick={reset}>
-                            Start Over
-                        </Button>
-                         <Button onClick={() => setStep('select')} className="ml-4">
-                            Try Another Design
-                        </Button>
-                    </div>
-                )}
-
-            </CardContent>
-        </Card>
-
+        <p className="mt-2 text-xs text-muted-foreground text-center">
+          Click a garment to select it. Drag to move.
+        </p>
+      </div>
     </div>
   );
 }
