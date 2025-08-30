@@ -1,53 +1,72 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useToast } from "@/hooks/use-toast";
+import { generateGarment, GenerateGarmentInput } from "@/ai/flows/generate-garment";
+import { Loader2 } from "lucide-react";
+import { Button } from "./ui/button";
+import { RadioGroup, RadioGroupItem } from "./ui/radio-group";
+import { Label } from "./ui/label";
 
-type Garment = {
+type GarmentLayer = {
   id: string;
   label: string;
-  src: string;
-  // default placement/scaling
-  x: number; // px from left
-  y: number; // px from top
-  scale: number; // 1 = 100%
-  rotate: number; // degrees
-  z: number; // layer order
+  src: string; // data URL from generation
+  x: number;
+  y: number;
+  scale: number;
+  rotate: number;
+  z: number;
 };
 
-// NOTE: Make sure these PNG files exist in your `public/cloth/` directory.
-const CATALOG: Garment[] = [
-  { id: "kurta1", label: "Blue Kurta", src: "/cloth/kurta1.png", x: 260, y: 250, scale: 1.5, rotate: 0, z: 10 },
-  { id: "blazer1", label: "Black Blazer", src: "/cloth/blazer1.png", x: 260, y: 240, scale: 1.6, rotate: 0, z: 12 },
-  { id: "pants1", label: "Beige Pants", src: "/cloth/pants1.png", x: 260, y: 450, scale: 1.5, rotate: 0, z: 8 },
-];
+const GARMENT_TYPES = ["Kurta", "Blazer", "Sherwani", "Pants"];
 
 export default function VirtualTrialClient() {
   const stageRef = useRef<HTMLDivElement>(null);
+  const { toast } = useToast();
+
+  // Step 1: Person Photo
   const [personFile, setPersonFile] = useState<File | null>(null);
   const [personUrl, setPersonUrl] = useState<string | null>(null);
   const [cutoutUrl, setCutoutUrl] = useState<string | null>(null);
   const [loadingCutout, setLoadingCutout] = useState(false);
 
-  const [layers, setLayers] = useState<Garment[]>([]);
+  // Step 2: Garment Design
+  const [garmentType, setGarmentType] = useState<string>("Kurta");
+  const [fabricFile, setFabricFile] = useState<File | null>(null);
+  const [fabricUrl, setFabricUrl] = useState<string | null>(null);
+  const [generatingGarment, setGeneratingGarment] = useState(false);
+
+  // Stage
+  const [layers, setLayers] = useState<GarmentLayer[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
 
   useEffect(() => {
     return () => {
       if (personUrl) URL.revokeObjectURL(personUrl);
       if (cutoutUrl) URL.revokeObjectURL(cutoutUrl);
+      if (fabricUrl) URL.revokeObjectURL(fabricUrl);
     };
-  }, [personUrl, cutoutUrl]);
+  }, [personUrl, cutoutUrl, fabricUrl]);
 
-  const handleUpload = (file: File | null) => {
+  const handlePersonUpload = (file: File | null) => {
     setPersonFile(file);
     setCutoutUrl(null);
     if (file) {
-      const url = URL.createObjectURL(file);
-      setPersonUrl(url);
+      setPersonUrl(URL.createObjectURL(file));
     } else {
       setPersonUrl(null);
     }
   };
+  
+  const handleFabricUpload = (file: File | null) => {
+    setFabricFile(file);
+     if (file) {
+      setFabricUrl(URL.createObjectURL(file));
+    } else {
+      setFabricUrl(null);
+    }
+  }
 
   const callRemoveBg = async () => {
     if (!personFile) return;
@@ -55,50 +74,77 @@ export default function VirtualTrialClient() {
     try {
       const fd = new FormData();
       fd.append("image_file", personFile);
-
       const res = await fetch("/api/remove-bg", { method: "POST", body: fd });
       if (!res.ok) {
         const errorData = await res.json();
         throw new Error(errorData.details || "Background removal proxy failed");
       }
       const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      setCutoutUrl(url);
+      setCutoutUrl(URL.createObjectURL(blob));
+      toast({ title: "Success", description: "Background removed." });
     } catch (e: any) {
       console.error(e);
-      alert(`Background removal failed: ${e.message}`);
+      toast({ variant: "destructive", title: "Error", description: `Background removal failed: ${e.message}` });
     } finally {
       setLoadingCutout(false);
     }
   };
 
-  const addLayer = (g: Garment) => {
-    const unique = { ...g, id: `${g.id}-${crypto.randomUUID()}` };
-    setLayers((prev) => [...prev, unique]);
-    setActiveId(unique.id);
-  };
+  const handleGenerateGarment = async () => {
+    if (!fabricFile || !garmentType) return;
+    setGeneratingGarment(true);
+    try {
+      const reader = new FileReader();
+      reader.readAsDataURL(fabricFile);
+      reader.onload = async () => {
+        const fabricDataUrl = reader.result as string;
+        const input: GenerateGarmentInput = {
+          garmentType,
+          fabricDataUrl,
+        };
+        const result = await generateGarment(input);
+
+        const newGarment: GarmentLayer = {
+            id: `garment-${crypto.randomUUID()}`,
+            label: garmentType,
+            src: result.garmentDataUrl,
+            x: 260, // default position
+            y: 350,
+            scale: 1.5,
+            rotate: 0,
+            z: 10,
+        };
+        setLayers(prev => [...prev, newGarment]);
+        setActiveId(newGarment.id);
+        toast({ title: "Garment Generated", description: "Your custom garment is ready to try on." });
+      };
+      reader.onerror = (error) => {
+        throw new Error("Could not read fabric file.");
+      }
+    } catch (e: any) {
+      console.error(e);
+      toast({ variant: "destructive", title: "AI Error", description: `Could not generate garment: ${e.message}` });
+    } finally {
+        setGeneratingGarment(false);
+    }
+  }
+
 
   const dragInfo = useRef<{ id: string; startX: number; startY: number; baseX: number; baseY: number } | null>(null);
 
   const onMouseDown = (e: React.MouseEvent, id: string) => {
     e.preventDefault();
     const target = layers.find((l) => l.id === id);
-    if (!target || !stageRef.current) return;
-    
-    const stageRect = stageRef.current.getBoundingClientRect();
-    const sx = e.clientX;
-    const sy = e.clientY;
-    dragInfo.current = { id, startX: sx, startY: sy, baseX: target.x, baseY: target.y };
+    if (!target) return;
+    dragInfo.current = { id, startX: e.clientX, startY: e.clientY, baseX: target.x, baseY: target.y };
     setActiveId(id);
   };
 
   const onMouseMove = (e: React.MouseEvent) => {
-    if (!dragInfo.current || !stageRef.current) return;
+    if (!dragInfo.current) return;
     const { id, startX, startY, baseX, baseY } = dragInfo.current;
-    
     const dx = e.clientX - startX;
     const dy = e.clientY - startY;
-
     setLayers((prev) =>
       prev.map((l) => (l.id === id ? { ...l, x: baseX + dx, y: baseY + dy } : l))
     );
@@ -108,7 +154,7 @@ export default function VirtualTrialClient() {
     dragInfo.current = null;
   };
 
-  const updateActive = (patch: Partial<Omit<Garment, 'id' | 'label' | 'src'>>) => {
+  const updateActive = (patch: Partial<GarmentLayer>) => {
     if (!activeId) return;
     setLayers((prev) => prev.map((l) => (l.id === activeId ? { ...l, ...patch } : l)));
   };
@@ -125,17 +171,16 @@ export default function VirtualTrialClient() {
     try {
       const { default: html2canvas } = await import("html2canvas");
       const canvas = await html2canvas(stage, { backgroundColor: null, scale: 2 });
-      const data = canvas.toDataURL("image/png");
       const a = document.createElement("a");
-      a.href = data;
+      a.href = canvas.toDataURL("image/png");
       a.download = "dubai-royal-attire-try-on.png";
       a.click();
     } catch (e) {
       console.error("Failed to export PNG:", e);
-      alert("Could not export image. Please try again.");
+      toast({ variant: "destructive", title: "Export Error", description: "Could not export image." });
     }
   };
-
+  
   const activeLayer = layers.find(l => l.id === activeId);
 
   return (
@@ -151,35 +196,50 @@ export default function VirtualTrialClient() {
             type="file"
             accept="image/*"
             className="text-sm file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-primary file:text-primary-foreground hover:file:bg-primary/90"
-            onChange={(e) => handleUpload(e.target.files?.[0] ?? null)}
+            onChange={(e) => handlePersonUpload(e.target.files?.[0] ?? null)}
           />
-          <button
-            className="w-full px-4 py-2 rounded-md bg-primary text-primary-foreground disabled:opacity-50"
+          <Button
+            className="w-full"
             disabled={!personFile || loadingCutout}
             onClick={callRemoveBg}
           >
-            {loadingCutout ? "Processing..." : "Remove Background"}
-          </button>
+            {loadingCutout ? <Loader2 className="animate-spin" /> : "Remove Background"}
+          </Button>
         </div>
 
         <div className="space-y-3 p-4 rounded-lg border bg-card text-card-foreground">
-          <h2 className="text-lg font-headline font-semibold">2. Add Garments</h2>
-          <div className="flex flex-wrap gap-2">
-            {CATALOG.map((g) => (
-              <button
-                key={g.id}
-                onClick={() => addLayer(g)}
-                className="px-3 py-1.5 rounded-md border bg-secondary hover:bg-accent hover:text-accent-foreground text-sm"
-              >
-                + {g.label}
-              </button>
+          <h2 className="text-lg font-headline font-semibold">2. Design Your Garment</h2>
+          
+          <Label>Select Garment Type</Label>
+          <RadioGroup value={garmentType} onValueChange={setGarmentType} className="flex gap-4">
+            {GARMENT_TYPES.map(type => (
+                <div key={type} className="flex items-center space-x-2">
+                    <RadioGroupItem value={type} id={`r-${type}`} />
+                    <Label htmlFor={`r-${type}`}>{type}</Label>
+                </div>
             ))}
-          </div>
+          </RadioGroup>
+          
+          <Label>Upload Fabric Swatch</Label>
+           <input
+            type="file"
+            accept="image/*"
+            className="text-sm file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-primary file:text-primary-foreground hover:file:bg-primary/90"
+            onChange={(e) => handleFabricUpload(e.target.files?.[0] ?? null)}
+          />
+
+          <Button
+            className="w-full"
+            disabled={!fabricFile || !garmentType || generatingGarment}
+            onClick={handleGenerateGarment}
+          >
+            {generatingGarment ? <Loader2 className="animate-spin" /> : `Generate ${garmentType}`}
+          </Button>
         </div>
 
         {activeLayer && (
           <div className="space-y-3 p-4 rounded-lg border bg-card text-card-foreground">
-            <h2 className="text-lg font-headline font-semibold">3. Adjust Layer</h2>
+            <h2 className="text-lg font-headline font-semibold">3. Adjust & Export</h2>
             <div className="grid grid-cols-3 gap-x-2 gap-y-3 items-center">
               <label className="text-sm">Scale</label>
               <input
@@ -207,12 +267,12 @@ export default function VirtualTrialClient() {
             </div>
 
             <div className="flex gap-2 pt-2">
-              <button onClick={removeActive} className="flex-1 px-3 py-2 rounded-md border text-sm">
+              <Button onClick={removeActive} variant="outline" className="flex-1">
                 Remove
-              </button>
-              <button onClick={exportPNG} className="flex-1 px-3 py-2 rounded-md bg-primary text-primary-foreground text-sm">
+              </Button>
+              <Button onClick={exportPNG} className="flex-1">
                 Export as PNG
-              </button>
+              </Button>
             </div>
           </div>
         )}
@@ -224,17 +284,13 @@ export default function VirtualTrialClient() {
           className="relative w-full max-w-[520px] aspect-[3/4] mx-auto rounded-lg border overflow-hidden bg-muted/50"
           onClick={() => setActiveId(null)}
         >
-          { (cutoutUrl ?? personUrl) ? (
+          { (cutoutUrl ?? personUrl) && (
             <img
               src={(cutoutUrl ?? personUrl) as string}
               alt="person"
               className="absolute inset-0 w-full h-full object-contain"
               draggable={false}
             />
-          ) : (
-            <div className="absolute inset-0 flex items-center justify-center text-sm text-muted-foreground">
-              Upload a photo to begin
-            </div>
           )}
 
           {layers.map((l) => (
@@ -246,7 +302,6 @@ export default function VirtualTrialClient() {
                 position: "absolute",
                 left: l.x,
                 top: l.y,
-                width: 300, // Fixed width for consistent scaling reference
                 transform: `translate(-50%, -50%) scale(${l.scale}) rotate(${l.rotate}deg)`,
                 zIndex: l.z,
                 cursor: "grab",
@@ -262,6 +317,12 @@ export default function VirtualTrialClient() {
               </div>
             </div>
           ))}
+          
+           {!personUrl && (
+             <div className="absolute inset-0 flex items-center justify-center text-sm text-muted-foreground p-8 text-center">
+              Upload a photo of yourself to begin the virtual try-on experience.
+            </div>
+           )}
         </div>
 
         <p className="mt-2 text-xs text-muted-foreground text-center">

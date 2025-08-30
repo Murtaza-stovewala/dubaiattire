@@ -1,4 +1,4 @@
 import { config } from 'dotenv';
 config();
 
-import '@/ai/flows/virtual-trial.ts';
+import '@/ai/flows/generate-garment';
