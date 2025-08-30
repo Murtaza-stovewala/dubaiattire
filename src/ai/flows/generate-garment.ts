@@ -33,7 +33,7 @@ export async function generateGarment(input: GenerateGarmentInput) {
         }
     });
     
-    const imagePart = llmResponse.output()?.message.parts.find(p => p.media);
+    const imagePart = llmResponse.output?.message.parts.find(p => p.media);
 
     if (!imagePart || !imagePart.media?.url) {
         throw new Error('AI did not return an image.');
