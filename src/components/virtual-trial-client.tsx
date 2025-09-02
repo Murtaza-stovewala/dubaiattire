@@ -46,6 +46,7 @@ export default function VirtualTrialClient() {
   const [activeId, setActiveId] = useState<string | null>(null);
 
   useEffect(() => {
+    // Cleanup function to revoke Object URLs on component unmount
     return () => {
       if (personUrl) URL.revokeObjectURL(personUrl);
       if (cutoutUrl) URL.revokeObjectURL(cutoutUrl);
@@ -57,6 +58,7 @@ export default function VirtualTrialClient() {
     setPersonFile(file);
     setCutoutUrl(null);
     setLayers([]); // Clear layers when new person is uploaded
+    if (personUrl) URL.revokeObjectURL(personUrl); // Revoke old URL
     if (file) {
       setPersonUrl(URL.createObjectURL(file));
     } else {
@@ -66,8 +68,8 @@ export default function VirtualTrialClient() {
 
   const handleFabricUpload = (file: File | null) => {
     setFabricFile(file);
+    if (fabricUrl) URL.revokeObjectURL(fabricUrl); // Revoke old URL first
     if(file){
-        if (fabricUrl) URL.revokeObjectURL(fabricUrl); // Revoke old URL
         setFabricUrl(URL.createObjectURL(file));
     } else {
         setFabricUrl(null);
@@ -86,6 +88,7 @@ export default function VirtualTrialClient() {
         throw new Error(errorData.details || "Background removal proxy failed");
       }
       const blob = await res.blob();
+      if(cutoutUrl) URL.revokeObjectURL(cutoutUrl);
       setCutoutUrl(URL.createObjectURL(blob));
       toast({ title: "Success", description: "Background removed." });
     } catch (e: any) {
@@ -104,12 +107,11 @@ export default function VirtualTrialClient() {
   
       const loadImage = (src: string) => new Promise<HTMLImageElement>((res, rej) => {
         const img = new Image();
-        // Only set crossOrigin for absolute URLs, not for local blobs or static assets
         if (src.startsWith('http')) {
           img.crossOrigin = "anonymous";
         }
         img.onload = () => res(img);
-        img.onerror = (err) => rej(new Error(`Failed to load image: ${src}. ${err.toString()}`));
+        img.onerror = () => rej(new Error(`Failed to load image asset: ${src}`));
         img.src = src;
       });
   
@@ -390,3 +392,5 @@ export default function VirtualTrialClient() {
     </div>
   );
 }
+
+    
