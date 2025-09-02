@@ -11,15 +11,16 @@ import html2canvas from "html2canvas";
 type Garment = {
   id: string;
   label: string;
-  src: string; // This will now be a data URL from canvas
+  src: string;
   x: number;
   y: number;
   scale: number;
   rotate: number;
   z: number;
+  templateId: string;
 };
 
-// These are now templates/masks. They should be simple, transparent PNG outlines.
+
 const GARMENT_TEMPLATES = [
     { id: "kurta-template", label: "Kurta", maskSrc: "/cloth/kurtanew_mask.png", shadingSrc: "/cloth/kurtanew_shading.png", borderSrc: "/cloth/kurtanew_border.png" },
     { id: "blazer-template", label: "Blazer", maskSrc: "/cloth/blazer1_mask.png", shadingSrc: "/cloth/blazer1_shading.png", borderSrc: "/cloth/blazer1_border.png" },
@@ -53,12 +54,46 @@ export default function VirtualTrialClient() {
       if (fabricUrl) URL.revokeObjectURL(fabricUrl);
     };
   }, [personUrl, cutoutUrl, fabricUrl]);
+  
+  // Re-texture garments when fabric changes
+  useEffect(() => {
+    if (!fabricUrl || layers.length === 0) return;
+
+    const retextureLayers = async () => {
+        setIsGenerating(true);
+        try {
+            const updatedLayers = await Promise.all(layers.map(async (layer) => {
+                const template = GARMENT_TEMPLATES.find(t => t.id === layer.templateId);
+                if (!template) return layer; // Should not happen
+
+                const newSrc = await applyFabricToTemplate(template.maskSrc, fabricUrl, template.shadingSrc, template.borderSrc);
+                return { ...layer, src: newSrc };
+            }));
+            setLayers(updatedLayers);
+        } catch(e: any) {
+            console.error(e);
+            toast({ variant: "destructive", title: "Fabric Update Failed", description: e.message });
+        } finally {
+            setIsGenerating(false);
+        }
+    };
+    retextureLayers();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fabricUrl]);
+
 
   const handlePersonUpload = (file: File | null) => {
     setPersonFile(file);
     setCutoutUrl(null);
-    setLayers([]); // Clear layers when new person is uploaded
-    if (personUrl) URL.revokeObjectURL(personUrl); // Revoke old URL
+    setLayers([]); 
+    setActiveId(null);
+    
+    // Reset fabric when person changes
+    setFabricFile(null);
+    if (fabricUrl) URL.revokeObjectURL(fabricUrl);
+    setFabricUrl(null);
+
+    if (personUrl) URL.revokeObjectURL(personUrl); 
     if (file) {
       setPersonUrl(URL.createObjectURL(file));
     } else {
@@ -68,9 +103,10 @@ export default function VirtualTrialClient() {
 
   const handleFabricUpload = (file: File | null) => {
     setFabricFile(file);
-    if (fabricUrl) URL.revokeObjectURL(fabricUrl); // Revoke old URL first
+    if (fabricUrl) URL.revokeObjectURL(fabricUrl);
     if(file){
-        setFabricUrl(URL.createObjectURL(file));
+        const newUrl = URL.createObjectURL(file);
+        setFabricUrl(newUrl);
     } else {
         setFabricUrl(null);
     }
@@ -106,12 +142,12 @@ export default function VirtualTrialClient() {
       if (!ctx) return reject("Could not get canvas context");
   
       const loadImage = (src: string) => new Promise<HTMLImageElement>((res, rej) => {
-        const img = new Image();
+        const img = new (window.Image)();
         if (src.startsWith('http')) {
           img.crossOrigin = "anonymous";
         }
         img.onload = () => res(img);
-        img.onerror = () => rej(new Error(`Failed to load image asset: ${src}`));
+        img.onerror = (err) => rej(new Error(`Failed to load image asset: ${src}.`));
         img.src = src;
       });
   
@@ -154,10 +190,11 @@ export default function VirtualTrialClient() {
     }
     setIsGenerating(true);
     try {
-      const { maskSrc, shadingSrc, borderSrc } = selectedTemplate;
+      const { id, maskSrc, shadingSrc, borderSrc } = selectedTemplate;
       const texturedGarmentSrc = await applyFabricToTemplate(maskSrc, fabricUrl, shadingSrc, borderSrc);
       const newGarment: Garment = {
         id: `${selectedTemplate.id}-${crypto.randomUUID()}`,
+        templateId: id,
         label: selectedTemplate.label,
         src: texturedGarmentSrc,
         x: 260, y: 350, scale: 1.5, rotate: 0, z: 10,
@@ -392,5 +429,3 @@ export default function VirtualTrialClient() {
     </div>
   );
 }
-
-    
