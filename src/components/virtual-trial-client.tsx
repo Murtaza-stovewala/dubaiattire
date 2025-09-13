@@ -40,6 +40,7 @@ export default function VirtualTrialClient() {
   
   const [fabricFile, setFabricFile] = useState<File | null>(null);
   const [fabricUrl, setFabricUrl] = useState<string | null>(null);
+  const [fabricHistory, setFabricHistory] = useState<string[]>([]);
   const [selectedTemplate, setSelectedTemplate] = useState<(typeof GARMENT_TEMPLATES)[0] | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
 
@@ -52,8 +53,9 @@ export default function VirtualTrialClient() {
       if (personUrl) URL.revokeObjectURL(personUrl);
       if (cutoutUrl) URL.revokeObjectURL(cutoutUrl);
       if (fabricUrl) URL.revokeObjectURL(fabricUrl);
+      fabricHistory.forEach(url => URL.revokeObjectURL(url));
     };
-  }, [personUrl, cutoutUrl, fabricUrl]);
+  }, [personUrl, cutoutUrl, fabricUrl, fabricHistory]);
   
   // Re-texture garments when fabric changes
   useEffect(() => {
@@ -90,6 +92,7 @@ export default function VirtualTrialClient() {
     
     // Reset fabric when person changes
     setFabricFile(null);
+    setFabricHistory([]);
     if (fabricUrl) URL.revokeObjectURL(fabricUrl);
     setFabricUrl(null);
 
@@ -103,10 +106,15 @@ export default function VirtualTrialClient() {
 
   const handleFabricUpload = (file: File | null) => {
     setFabricFile(file);
-    if (fabricUrl) URL.revokeObjectURL(fabricUrl);
+    if (fabricUrl && !fabricHistory.includes(fabricUrl)) {
+       // URL.revokeObjectURL(fabricUrl); // Keep old urls for history
+    }
     if(file){
         const newUrl = URL.createObjectURL(file);
         setFabricUrl(newUrl);
+        if (!fabricHistory.includes(newUrl)) {
+          setFabricHistory(prev => [newUrl, ...prev]);
+        }
     } else {
         setFabricUrl(null);
     }
@@ -147,7 +155,7 @@ export default function VirtualTrialClient() {
           img.crossOrigin = "anonymous";
         }
         img.onload = () => res(img);
-        img.onerror = (err) => rej(new Error(`Failed to load image asset: ${src}.`));
+        img.onerror = (err) => reject(new Error(`Failed to load image asset: ${src}.`));
         img.src = src;
       });
   
@@ -425,7 +433,25 @@ export default function VirtualTrialClient() {
         <p className="mt-2 text-xs text-muted-foreground text-center">
           Click a garment to select it. Drag to move.
         </p>
+
+        {fabricHistory.length > 0 && (
+          <div className="mt-4">
+            <h3 className="text-sm font-medium text-center mb-2">Fabric History</h3>
+            <div className="flex justify-center gap-2 flex-wrap">
+              {fabricHistory.map((histUrl) => (
+                <button 
+                  key={histUrl}
+                  onClick={() => setFabricUrl(histUrl)}
+                  className={`w-14 h-14 rounded-full overflow-hidden border-2 transition-all ${fabricUrl === histUrl ? 'border-primary scale-110' : 'border-transparent'}`}
+                >
+                  <img src={histUrl} alt="fabric history" className="w-full h-full object-cover" />
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
 }
+
